@@ -19,6 +19,7 @@ impl FakeUserVoiceApi {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_failed_section(section: &'static str) -> Self {
         Self {
             failed_sections: Arc::new(HashSet::from([section])),

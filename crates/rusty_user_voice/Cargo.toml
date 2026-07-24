@@ -16,6 +16,7 @@ path = "src/bin/cli.rs"
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
+dirs.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
 serde.workspace = true
