@@ -29,6 +29,24 @@ impl RateLimit {
             retry_after_epoch_seconds: number(headers, "retry-after"),
         })
     }
+
+    pub fn retry_delay(headers: &HeaderMap, attempt: u32) -> std::time::Duration {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if let Some(raw) = headers
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            let seconds = if raw > now { raw - now } else { raw };
+            return std::time::Duration::from_secs(seconds);
+        }
+        let exponential_ms = 250_u64.saturating_mul(1_u64 << attempt.saturating_sub(1));
+        let jitter_ms = rand::random_range(0..=100_u64);
+        std::time::Duration::from_millis(exponential_ms.saturating_add(jitter_ms))
+    }
 }
 
 #[cfg(test)]

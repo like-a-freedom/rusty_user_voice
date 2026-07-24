@@ -91,21 +91,69 @@ impl ReqwestUserVoiceClient {
     ///
     /// `pub(crate)` so the read-path retry wrapper added in Task 10 can call
     /// this without exposing it on the public API.
+    pub(crate) const MAX_READ_ATTEMPTS: u32 = 3;
+    pub(crate) const MAX_RATE_LIMIT_SLEEP: std::time::Duration = std::time::Duration::from_secs(30);
+
     pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(String, String)],
     ) -> Result<ApiResponse<T>, ClientError> {
         let url = self.endpoint.admin_url(path)?;
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(self.token.expose())
-            .query(query)
-            .send()
-            .await
-            .map_err(ClientError::Transport)?;
-        self.decode(response).await
+        for attempt in 1..=Self::MAX_READ_ATTEMPTS {
+            let response = self
+                .http
+                .get(url.clone())
+                .bearer_auth(self.token.expose())
+                .query(query)
+                .send()
+                .await
+                .map_err(ClientError::Transport)?;
+            let status = response.status();
+            if attempt < Self::MAX_READ_ATTEMPTS
+                && (status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
+            {
+                let delay = RateLimit::retry_delay(response.headers(), attempt);
+                if delay <= Self::MAX_RATE_LIMIT_SLEEP {
+                    tracing::warn!(
+                        operation = "uservoice_read_retry",
+                        attempt,
+                        status = status.as_u16(),
+                        delay_ms = delay.as_millis() as u64,
+                        "retrying transient UserVoice read"
+                    );
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            }
+            return self.decode(response).await;
+        }
+        Err(ClientError::HttpStatus { status: 503 })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn retry_with_rate_limit_sleep<F, Fut, T>(mut op: F) -> Result<T, ClientError>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ClientError>>,
+    {
+        match op().await {
+            Err(ClientError::RateLimited { rate_limit }) => {
+                let delay = rate_limit
+                    .and_then(|rl| rl.retry_after_epoch_seconds)
+                    .map(std::time::Duration::from_secs)
+                    .unwrap_or_else(|| std::time::Duration::from_secs(1))
+                    .min(Self::MAX_RATE_LIMIT_SLEEP);
+                tracing::warn!(
+                    operation = "uservoice_section_retry",
+                    delay_ms = delay.as_millis() as u64,
+                    "section-level 429; retrying once (ADR-0006)"
+                );
+                tokio::time::sleep(delay).await;
+                op().await
+            }
+            other => other,
+        }
     }
 
     const MAX_CATALOG_PAGES: usize = 100;
