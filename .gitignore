@@ -5,6 +5,10 @@
 # Local issue/spec workspace
 .scratch/
 .agents/prompts
+.commandcode/
+.mimocode/
+.vscode/
+.qwen/
 
 # Environment and secrets
 .env
