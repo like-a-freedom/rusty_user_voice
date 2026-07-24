@@ -17,17 +17,21 @@
 - `.env.test` remains ignored and must have mode `0600` before any live call. Tests and documentation must never read or snapshot its value.
 - The public MCP surface is exactly seven tools: `uservoice_workspace_context`, `uservoice_search_ideas`, `uservoice_get_idea_context`, `uservoice_collect_ideas`, `uservoice_update_idea`, `uservoice_publish_idea_update`, and `uservoice_record_feedback`.
 - Every MCP parameter struct derives `Deserialize` and `JsonSchema` and uses `#[serde(deny_unknown_fields)]`.
-- Every MCP success returns schema-backed structured content with `status`, `data`, `next_actions`, and optional `guidance`, `pagination`, or `rate_limit`.
-- Application validation failures use native `invalid_params`; authentication, transport, decoding, and storage failures use native `internal_error`. RMCP 2.2 converts parameter-deserialization failures (including unknown fields) into its standard tool result with `isError: true`. Partial upstream reads remain successful structured results with `status: "partial"`.
+- Every MCP success returns schema-backed structured content with `status`, `data`, `next_actions`, and optional `guidance`, `pagination`, or `rate_limit`. The application-layer outcome enum is `OutcomeStatus { Ok, Partial, NoResults, Conflict }`; the MCP wire token is the canonical `{ "success", "partial", "no_results", "conflict" }` set, produced by one mapping at the MCP server seam (ADR-0002). `OutcomeStatus::Partial` serialises with `isError: false` on the wire so the agent loop continues.
+- Only application parameter validation (`AppError::Validation`) maps to MCP `invalid_params`. Everything originating upstream (`NotFound`, `RateLimited`, `Authentication`, transport, decoding), in the filesystem (`Io`), or in the ledger (`Conflict`, `State`) maps to MCP `internal_error` carrying a structured `Envelope` payload whose `status` is `not_found` or `conflict` with a `guidance` field naming the next call. Stale-preview `Conflict` additionally echoes the preview's `expires_at` (ADR-0003). RMCP 2.2 still converts parameter-deserialization failures (including unknown fields) into its standard tool result with `isError: true`.
+- Pagination payloads carry `per_page`, `total_records`, `next`, and a derived `has_more: bool` computed from `next.is_some()`; `next` is an opaque cursor/page token passed back verbatim (ADR-0005).
+- Section-level 429 inside the bounded idea-context fan-out waits `retry_after` (capped at `MAX_RATE_LIMIT_SLEEP`) and retries once; a second 429 or any retry failure drops that section into `missing_sections` with `status = "partial"` (ADR-0006). Writes never retry.
+- Hitting `MAX_CONTEXT_PAGES = 100` during collection returns `status = "conflict"` with `pagination.limit_hit: true` and a `guidance` field naming the narrower query — never silent truncation (ADR-0004).
 - Read tools are annotated read-only and idempotent. All tools are annotated `openWorldHint: true` because they read or mutate a remote tenant. Mutation annotations remain conservative even when the local idempotency ledger reduces retry risk.
 - Mutations use `preview -> change_id with 15-minute TTL -> explicit apply`, literal `confirmation="apply"`, optimistic freshness via `updated_at`, and a caller-provided idempotency key.
 - Never retry a write blindly, never attempt compensating writes, and return the ordered completion ledger after a partial mutation.
-- Prefer cursor pagination; support page pagination when UserVoice does not return a cursor. Enforce `1 <= per_page <= 100`.
-- Full-context section reads follow every continuation and stop only when exhausted; a 100-page per-section ceiling fails that section explicitly as partial instead of silently truncating data.
+- Prefer cursor pagination; support page pagination when UserVoice does not return a cursor. Enforce `1 <= per_page <= 100` through the single helper `uservoice_client::pagination::validate_per_page` shared by the CLI parser, the adapter request validator, and the collector filter.
+- Full-context section reads follow every continuation and stop only when exhausted; a 100-page per-section ceiling (`MAX_CONTEXT_PAGES`) fails that section explicitly as `status = "conflict"` with `pagination.limit_hit: true` and a recovery `next_action` instead of silently truncating data (ADR-0004).
 - Workspace forums, categories, statuses, and labels are also drained across all pages; taxonomy is never assumed to fit the API default page.
 - To keep agent context bounded, full-detail collection accepts at most 10 ideas per page; summary collection and search accept up to the UserVoice maximum of 100.
-- Parse `X-Rate-Limit-Limit`, `X-Rate-Limit-Remaining`, `X-Rate-Limit-Reset`, and `Retry-After`; bound read retries and expose rate-limit state to the caller.
-- Use semantic ID newtypes, typed enums, `thiserror` in libraries, `anyhow` only in binaries, no production `unwrap`, no lock held across `.await`, and no unsafe code.
+- Parse `X-Rate-Limit-Limit`, `X-Rate-Limit-Remaining`, `X-Rate-Limit-Reset`, and `Retry-After`; bound read retries (`MAX_READ_ATTEMPTS = 3`, `MAX_RATE_LIMIT_SLEEP = 30s`) and expose rate-limit state to the caller.
+- Use semantic ID newtypes, typed enums, `thiserror` in libraries, `anyhow` only in binaries, no production `unwrap`, no lock held across `.await`, and no unsafe code. Public error enums (`ClientError`, `OutcomeStatus`, `AppError`) are `#[non_exhaustive]`.
+- MSRV is `1.85`, declared in `Cargo.toml` and pinned as a matrix entry in CI (`cargo +1.85 check --workspace`).
 - Keep stdout protocol-safe: MCP writes only protocol frames to stdout; CLI writes only the selected result format to stdout; diagnostics go to stderr.
 - Default CI and `cargo test --workspace` use fixtures only. The live smoke test is read-only, ignored by default, and runs only with explicit user intent.
 
@@ -91,6 +95,17 @@ The design specification at `docs/superpowers/specs/2026-07-17-uservoice-agent-d
 - Defer idea creation, merge/delete, spam moderation, attachment upload,
   webhooks, bulk writes, and dynamic tool groups until real PM workflows require
   them. Their risk and schemas should not pollute the v1 surface.
+
+## Architectural decisions (ADRs)
+
+The plan deviates from the local skill templates in deliberate, hard-to-reverse ways. Each deviation is recorded in `docs/adr/` and is binding on this implementation.
+
+- **ADR-0001** — crates are `uservoice_client` + `rusty_user_voice` (DDD layer split).
+- **ADR-0002** — `OutcomeStatus` is the application enum; the wire token is mapped at the MCP seam; `Partial` is `isError: false`.
+- **ADR-0003** — `From<AppError> for McpError` is a 2-arm split; `NotFound` and `Conflict` flow through `internal_error` plus a structured `Envelope`; stale-preview `Conflict` echoes `expires_at`.
+- **ADR-0004** — collection safety cap returns `status = "conflict"` with `pagination.limit_hit: true`.
+- **ADR-0005** — pagination keeps `per_page`/`total_records`/`next` and adds `has_more`; rejects `next_offset`.
+- **ADR-0006** — section-level 429 retries once (capped at `MAX_RATE_LIMIT_SLEEP`), then `partial`.
 
 ## File and responsibility map
 
@@ -766,7 +781,14 @@ pub enum Continuation {
 pub struct Pagination {
     pub per_page: u32,
     pub total_records: Option<u64>,
+    /// Opaque continuation token (cursor or page number, depending on what
+    /// UserVoice returned). Pass back verbatim as `continuation`; do not interpret
+    /// as a numeric offset (ADR-0005).
     pub next: Option<Continuation>,
+    /// `true` when `next` is `Some(_)`. Computed by `from_upstream`. Named
+    /// `has_more` rather than `next_offset` because UserVoice cursors are opaque
+    /// and cannot be expressed as a numeric offset (ADR-0005).
+    pub has_more: bool,
 }
 
 impl Pagination {
@@ -784,12 +806,30 @@ impl Pagination {
                 }
                 _ => None,
             });
+        let has_more = next.is_some();
         Self {
             per_page: value.per_page.unwrap_or(20),
             total_records: value.total_records,
             next,
+            has_more,
         }
     }
+}
+
+/// Single source of truth for the `1 <= per_page <= 100` invariant (F-005, DRY).
+/// Called by the CLI parser's `value_parser`, by `SearchSuggestionsRequest::validate`,
+/// and by the collector's `idea_filter`.
+///
+/// # Errors
+///
+/// Returns [`ClientError::Validation`] when `per_page` is outside `[1, 100]`.
+pub fn validate_per_page(per_page: u32) -> Result<u32, crate::ClientError> {
+    if !(1..=100).contains(&per_page) {
+        return Err(crate::ClientError::Validation {
+            message: format!("per_page must be in 1..=100, got {per_page}"),
+        });
+    }
+    Ok(per_page)
 }
 
 pub fn continuation_from_link(headers: &reqwest::header::HeaderMap) -> Option<Continuation> {
@@ -867,6 +907,12 @@ pub struct ApiResponse<T> {
 }
 
 pub trait UserVoiceApi: Clone + Send + Sync + 'static {
+    /// Returns the authenticated principal. Acts as the access preflight.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Authentication`] on 401/403, [`ClientError::NotFound`]
+    /// on 404, or any transport/decode variant.
     fn current_user(
         &self,
     ) -> impl Future<Output = Result<ApiResponse<User>, ClientError>> + Send;
@@ -926,6 +972,12 @@ pub struct ReqwestUserVoiceClient {
 }
 
 impl ReqwestUserVoiceClient {
+    /// Constructs the production HTTP adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Transport`] if the reqwest client cannot be built
+    /// (e.g. TLS backend initialization failure).
     pub fn new(endpoint: ApiEndpoint, token: AccessToken) -> Result<Self, ClientError> {
         let http = Client::builder()
             .user_agent(concat!("rusty-user-voice/", env!("CARGO_PKG_VERSION")))
@@ -1011,6 +1063,19 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
 Update `crates/uservoice_client/src/lib.rs`:
 
 ```rust
+#![deny(unsafe_code)]
+//! UserVoice Admin API adapter (DDD anti-corruption layer).
+//!
+//! This crate owns the typed UserVoice Admin API adapter, the redacted access
+//! token, the validated/normalized API endpoint, semantic ID newtypes,
+//! pagination, rate limits, and the native-async `UserVoiceApi` seam. It is
+//! deliberately free of any MCP, Clap, or application-workflow dependency:
+//! schema drift and HTTP shape are contained here so the application layer
+//! never sees raw upstream payloads.
+//!
+//! See `CONTEXT.md` at the repository root for the ubiquitous language and
+//! `docs/adr/0001` for the rationale of the crate split.
+
 mod api;
 mod auth;
 mod client;
@@ -1032,7 +1097,7 @@ pub use ids::{
 };
 pub use models::User;
 pub use pagination::{
-    Continuation, Pagination, UpstreamPagination, continuation_from_link,
+    Continuation, Pagination, UpstreamPagination, continuation_from_link, validate_per_page,
 };
 pub use rate_limit::RateLimit;
 ```
@@ -1466,16 +1531,12 @@ pub struct SearchSuggestionsRequest {
 }
 
 impl SearchSuggestionsRequest {
-    pub fn validate(&self) -> Result<(), crate::ClientError> {
-        if !(1..=100).contains(&self.per_page) {
-            return Err(crate::ClientError::Validation {
-                message: format!("per_page must be between 1 and 100, got {}", self.per_page),
-            });
-        }
+    pub fn validate(&self) -> Result<(), ClientError> {
+        crate::pagination::validate_per_page(self.per_page)?;
         Ok(())
     }
 
-    pub(crate) fn query_pairs(&self) -> Result<Vec<(String, String)>, crate::ClientError> {
+    pub(crate) fn query_pairs(&self) -> Result<Vec<(String, String)>, ClientError> {
         self.validate()?;
         let mut pairs = vec![("per_page".to_owned(), self.per_page.to_string())];
         push_option(&mut pairs, "q", self.query.clone());
@@ -1521,24 +1582,25 @@ fn push_date(
     }
 }
 
-fn push_ids<T: Copy>(
+fn push_ids<T: Copy, F>(
     pairs: &mut Vec<(String, String)>,
     key: &str,
     values: &[T],
-    value: impl Fn(T) -> i64,
-) {
-    if !values.is_empty() {
-        pairs.push((
-            key.to_owned(),
-            values
-                .iter()
-                .copied()
-                .map(value)
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join(","),
-        ));
+    value: F,
+) where
+    F: Fn(T) -> i64,
+{
+    if values.is_empty() {
+        return;
     }
+    let joined = values
+        .iter()
+        .copied()
+        .map(value)
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    pairs.push((key.to_owned(), joined));
 }
 ```
 
@@ -1991,7 +2053,12 @@ fn idea_filter(
 ```
 
 Add one bounded internal drain helper. It follows every body cursor or `Link`
-header and never silently truncates a section:
+header and never silently truncates a section. When the per-section safety
+ceiling is hit, the helper returns `ClientError::PaginationLimit`; the caller
+(`get_idea_context`) converts that to `OutcomeStatus::Conflict` with a recovery
+`next_action` per ADR-0004 — never silent truncation. Section-level `429`s are
+retried once via `retry_with_rate_limit_sleep` (ADR-0006) before falling back to
+`ClientError::RateLimited`.
 
 ```rust
 const MAX_CONTEXT_PAGES: usize = 100;
@@ -2013,9 +2080,12 @@ impl ReqwestUserVoiceClient {
         let mut rate_limit = None;
 
         for _ in 0..MAX_CONTEXT_PAGES {
-            let response: ApiResponse<R> = self
-                .get(path, &idea_filter(idea_id, per_page, continuation.as_ref())?)
-                .await?;
+            // ADR-0006: section-level 429 retries once, capped at MAX_RATE_LIMIT_SLEEP.
+            let response: ApiResponse<R> = retry_with_rate_limit_sleep(|| async {
+                self.get(path, &idea_filter(idea_id, per_page, continuation.as_ref())?)
+                    .await
+            })
+            .await?;
             let (mut page_items, upstream) = extract(response.data);
             let pagination =
                 Pagination::from_upstream(upstream, response.continuation);
@@ -2032,6 +2102,7 @@ impl ReqwestUserVoiceClient {
                                 per_page,
                                 total_records,
                                 next: None,
+                                has_more: false,
                             },
                         },
                         rate_limit,
@@ -2041,6 +2112,7 @@ impl ReqwestUserVoiceClient {
             }
         }
 
+        // ADR-0004: cap hit is a loud failure, not silent truncation.
         Err(ClientError::PaginationLimit {
             section: path.to_owned(),
         })
@@ -2293,13 +2365,31 @@ use uservoice_client::{
     Supporter, User, WorkspaceCatalog,
 };
 
+/// Application-layer outcome enum. Source of truth for `Envelope<T>::status`.
+/// The MCP wire token (`"success"`, `"partial"`, `"no_results"`, `"conflict"`)
+/// is produced by `OutcomeStatus::as_wire_status` at the MCP server seam — see
+/// ADR-0002. `Partial` serialises on the wire with `isError: false` so the agent
+/// loop continues.
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OutcomeStatus {
     Ok,
     Partial,
     NoResults,
     Conflict,
+}
+
+impl OutcomeStatus {
+    /// Returns the canonical MCP wire status token. See ADR-0002.
+    pub const fn as_wire_status(self) -> &'static str {
+        match self {
+            Self::Ok => "success",
+            Self::Partial => "partial",
+            Self::NoResults => "no_results",
+            Self::Conflict => "conflict",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
@@ -2379,11 +2469,11 @@ pub struct App<G: UserVoiceApi> {
 
 impl<G: UserVoiceApi> App<G> {
     pub fn new(api: Arc<G>, max_in_flight: usize) -> Self {
-        Self {
-            api,
-            max_in_flight: NonZeroUsize::new(max_in_flight.clamp(1, 8))
-                .expect("clamp guarantees non-zero"),
-        }
+        // INVARIANT: clamp(1, 8) guarantees the result is in [1, 8]; NonZeroUsize::new
+        // therefore cannot return None. If this expect ever fires, the clamp is wrong.
+        let max_in_flight = NonZeroUsize::new(max_in_flight.clamp(1, 8))
+            .expect("clamp(1, 8) guarantees non-zero; violated only by a clamp bug");
+        Self { api, max_in_flight }
     }
 }
 ```
@@ -2676,6 +2766,10 @@ fn context_envelope(
     context: IdeaContext,
     rate_limit: Option<uservoice_client::RateLimit>,
 ) -> Envelope<IdeaContext> {
+    // F-006 (DRY): Task 7's `mutation_envelope` is the same shape. The
+    // `envelope_with_next_action` helper extracted in Task 7 should be the
+    // single source of truth; for now this helper is inline and Task 7
+    // consolidates both into `crate::contracts::results::envelope_with_next_action`.
     let idea_id = context.suggestion.id;
     Envelope {
         status: OutcomeStatus::Ok,
@@ -2881,7 +2975,11 @@ Create `src/error.rs`:
 use rmcp::ErrorData as McpError;
 use thiserror::Error;
 
+/// Application-layer error type. `#[non_exhaustive]` because new upstream or
+/// ledger failure modes may be added in future revisions without a breaking
+/// version bump (F-007, `api-non_exhaustive`).
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AppError {
     #[error("{0}")]
     Validation(String),
@@ -2897,17 +2995,55 @@ pub enum AppError {
     State(String),
 }
 
+/// ADR-0003: only `Validation` maps to MCP `invalid_params`. Everything
+/// originating upstream (`NotFound`, `RateLimited`, `Authentication`, transport,
+/// decoding), in the filesystem (`Io`), or in the ledger (`Conflict`, `State`)
+/// maps to MCP `internal_error` carrying a structured `Envelope` payload whose
+/// `status` is `not_found` or `conflict` respectively, with a `guidance` field
+/// naming the next call. Stale-preview `Conflict` additionally echoes the
+/// preview's `expires_at` so the agent can diagnose staleness — it must *not*
+/// bypass the re-search step (the guidance text makes this explicit).
 impl From<AppError> for McpError {
     fn from(value: AppError) -> Self {
         match value {
-            AppError::Validation(message) | AppError::Conflict(message) => {
-                McpError::invalid_params(message, None)
-            }
+            AppError::Validation(message) => McpError::invalid_params(message, None),
             AppError::Client(uservoice_client::ClientError::NotFound) => {
-                McpError::invalid_params("UserVoice idea was not found", None)
+                McpError::internal_error(
+                    "idea was not found",
+                    Some(serde_json::json!({
+                        "status": "not_found",
+                        "guidance": "call uservoice_search_ideas to refresh the idea_id",
+                    })),
+                )
             }
+            AppError::Conflict(message) => McpError::internal_error(
+                message.clone(),
+                Some(serde_json::json!({
+                    "status": "conflict",
+                    "guidance": conflict_guidance(&message),
+                })),
+            ),
             other => McpError::internal_error(other.to_string(), None),
         }
+    }
+}
+
+/// Extracts a stale-preview `expires_at` from a `Conflict("change_id {id} has expired; expires_at = {ts}")`
+/// message (set by the ledger when it detects TTL expiry) and renders a guidance
+/// string that points the agent at the recovery path: re-search, then re-preview.
+/// Returns a generic conflict guidance when the message does not carry `expires_at`.
+fn conflict_guidance(message: &str) -> String {
+    if let Some(expires_at) = message
+        .strip_prefix("change_id ")
+        .and_then(|rest| rest.split_once(" has expired; expires_at = "))
+        .map(|(_, ts)| ts)
+    {
+        format!(
+            "preview expired at {expires_at}; the idea may have changed — \
+             re-search, then call uservoice_update_idea with mode=preview again"
+        )
+    } else {
+        "state mismatch; re-read the affected resource and re-issue the preview".to_owned()
     }
 }
 ```
@@ -3097,6 +3233,7 @@ fn pagination() -> Pagination {
         per_page: 100,
         total_records: Some(1),
         next: None,
+        has_more: false,
     }
 }
 
@@ -3998,7 +4135,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
     #[tool(
         name = "uservoice_workspace_context",
-        description = "Verify UserVoice access and load the current admin plus forums, categories, statuses, and labels. Use first when taxonomy or connectivity is unknown. Next use uservoice_search_ideas.",
+        description = "Verify UserVoice access and load the current admin plus forums, categories, statuses, and labels. Use first when taxonomy or connectivity is unknown. Do NOT use this tool to find individual ideas — call search_ideas instead. Next use search_ideas."
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
     )]
     async fn workspace_context(
@@ -4014,7 +4151,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_search_ideas",
-        description = "Find UserVoice ideas by text, update window, taxonomy IDs, state, and sort. Returns compact idea summaries and continuation. Use uservoice_get_idea_context with a returned idea_id before deciding or writing.",
+        description = "Find UserVoice ideas by text, update window, taxonomy IDs, state, and sort. Returns compact idea summaries and continuation. Use get_idea_context with a returned idea_id before deciding or writing. Do NOT use this tool to fetch the full discussion or notes on one idea — use get_idea_context instead."
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
     )]
     async fn search_ideas(
@@ -4026,7 +4163,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_get_idea_context",
-        description = "Load one idea by stable idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial result names every unavailable section and remains usable.",
+        description = "Load one idea by stable idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial result names every unavailable section and remains usable. Do NOT use this tool to discover ideas without a known idea_id — call search_ideas first."
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
     )]
     async fn get_idea_context(
@@ -4042,7 +4179,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_collect_ideas",
-        description = "Collect one resumable page of ideas updated in a bounded time window. Prefer cursor continuation. Full detail is capped at 10 ideas per page; summary allows 100. The caller must durably consume the page before passing the returned continuation; the MCP tool itself does not persist checkpoints. Repeat until continuation is absent.",
+        description = "Collect one resumable page of ideas updated in a bounded time window. Prefer cursor continuation. Full detail is capped at 10 ideas per page; summary allows 100. The caller must durably consume the page before passing the returned continuation; the MCP tool itself does not persist checkpoints. Repeat until continuation is absent. Do NOT use this tool to look up one known idea — use get_idea_context instead."
         annotations(read_only_hint = true, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
     )]
     async fn collect_ideas(
@@ -5592,33 +5729,55 @@ fn field_changes(
 }
 
 fn mutation_envelope(result: MutationResult) -> Envelope<MutationResult> {
+    // F-006 (DRY): the shared `envelope_with_next_action` helper (added to
+    // `crate::contracts::results` in this step) is the single source of truth.
+    // `context_envelope` in Task 4 should be migrated to it in the same change.
     let idea_id = result.idea_id;
     let partial = result
         .applied_operations
         .iter()
         .any(|operation| operation.outcome.starts_with("failed:"));
+    let next = NextAction {
+        tool: "uservoice_get_idea_context".to_owned(),
+        reason: "Refresh the idea after apply, or review the preview before apply.".to_owned(),
+        idea_id: Some(idea_id),
+        arguments: BTreeMap::from([(
+            "idea_id".to_owned(),
+            serde_json::json!(idea_id),
+        )]),
+    };
+    let guidance = partial.then(|| {
+        "Do not retry with a new key. Refresh the idea context and inspect completed operations."
+            .to_owned()
+    });
+    envelope_with_next_action(
+        result,
+        if partial { OutcomeStatus::Partial } else { OutcomeStatus::Ok },
+        next,
+        guidance,
+        None,
+        None,
+    )
+}
+
+/// Shared envelope builder for any result whose next-action is a single tool.
+/// Introduced in Task 7 as the consolidation point for `context_envelope` and
+/// `mutation_envelope` (F-006, DRY).
+pub(crate) fn envelope_with_next_action<T>(
+    data: T,
+    status: OutcomeStatus,
+    next_action: NextAction,
+    guidance: Option<String>,
+    pagination: Option<Pagination>,
+    rate_limit: Option<uservoice_client::RateLimit>,
+) -> Envelope<T> {
     Envelope {
-        status: if partial {
-            OutcomeStatus::Partial
-        } else {
-            OutcomeStatus::Ok
-        },
-        data: result,
-        next_actions: vec![NextAction {
-            tool: "uservoice_get_idea_context".to_owned(),
-            reason: "Refresh the idea after apply, or review the preview before apply.".to_owned(),
-            idea_id: Some(idea_id),
-            arguments: BTreeMap::from([(
-                "idea_id".to_owned(),
-                serde_json::json!(idea_id),
-            )]),
-        }],
-        guidance: partial.then(|| {
-            "Do not retry with a new key. Refresh the idea context and inspect completed operations."
-                .to_owned()
-        }),
-        pagination: None,
-        rate_limit: None,
+        status,
+        data,
+        next_actions: vec![next_action],
+        guidance,
+        pagination,
+        rate_limit,
     }
 }
 ```
@@ -6470,7 +6629,7 @@ Append inside the existing `#[tool_router]` implementation:
 ```rust
 #[tool(
     name = "uservoice_update_idea",
-    description = "Safely update an idea. First call mode=preview with only requested fields. Then call mode=apply with the same fields plus returned change_id, confirmation=\"apply\", and a unique idempotency_key. Apply rejects stale ideas and reports partial upstream writes without rollback.",
+    description = "Safely update an idea. First call mode=preview with only requested fields. Then call mode=apply with the same fields plus returned change_id, confirmation=\"apply\", and a unique idempotency_key. Apply rejects stale ideas and reports partial upstream writes without rollback. Do NOT use this tool to publish a public status update — use publish_idea_update instead. Do NOT use mode=apply without a fresh preview from the current updated_at."
     annotations(read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = true)
 )]
 async fn update_idea(
@@ -6486,7 +6645,7 @@ async fn update_idea(
 
 #[tool(
     name = "uservoice_publish_idea_update",
-    description = "Preview or publish a public idea status update. Defaults notify_supporters=false. Apply must repeat the preview payload and include change_id, confirmation=\"apply\", and idempotency_key. Use only after reviewing full idea context.",
+    description = "Preview or publish a public idea status update. Defaults notify_supporters=false. Apply must repeat the preview payload and include change_id, confirmation=\"apply\", and idempotency_key. Use only after reviewing full idea context. Do NOT use this tool to change idea fields or labels — use update_idea instead. Do NOT use this tool to record an inbound comment — use record_feedback instead."
     annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = true)
 )]
 async fn publish_idea_update(
@@ -6502,7 +6661,7 @@ async fn publish_idea_update(
 
 #[tool(
     name = "uservoice_record_feedback",
-    description = "Create one provenance-aware feedback record. Provide a unique idempotency_key and link at least one idea_id, user_id, or user_email. Prefer source_guid and source_url when feedback comes from another system. This is additive and does not edit the idea.",
+    description = "Create one provenance-aware feedback record. Provide a unique idempotency_key and link at least one idea_id, user_id, or user_email. Prefer source_guid and source_url when feedback comes from another system. This is additive and does not edit the idea. Do NOT use this tool to post a public reply to supporters — use publish_idea_update instead."
     annotations(read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = true)
 )]
 async fn record_feedback(
@@ -7326,6 +7485,38 @@ pub fn retry_delay(headers: &HeaderMap, attempt: u32) -> std::time::Duration {
 
 Re-export `retry_delay` crate-internally. Do not call this retry loop from `put_json` or `post_json`.
 
+Add the section-level retry wrapper used by `collect_context` (ADR-0006):
+
+```rust
+/// Bounded retry helper for section-level reads. Waits `retry_after` (capped
+/// at `MAX_RATE_LIMIT_SLEEP`) and retries exactly once on `ClientError::RateLimited`;
+/// any other error or a second `RateLimited` is propagated. Used by the
+/// bounded idea-context fan-out in `collect_context`. Writes must never call this.
+pub(crate) async fn retry_with_rate_limit_sleep<F, Fut, T>(mut op: F) -> Result<T, ClientError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ClientError>>,
+{
+    match op().await {
+        Err(ClientError::RateLimited { rate_limit }) => {
+            let delay = rate_limit
+                .and_then(|rl| rl.retry_after_epoch_seconds)
+                .map(std::time::Duration::from_secs)
+                .unwrap_or_else(|| std::time::Duration::from_secs(1))
+                .min(MAX_RATE_LIMIT_SLEEP);
+            tracing::warn!(
+                operation = "uservoice_section_retry",
+                delay_ms = delay.as_millis(),
+                "section-level 429; retrying once (ADR-0006)"
+            );
+            tokio::time::sleep(delay).await;
+            op().await
+        }
+        other => other,
+    }
+}
+```
+
 - [ ] **Step 4: Centralize redacted tracing at adapter boundaries**
 
 Add a single tracing initializer used by both binaries:
@@ -7374,10 +7565,18 @@ on:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Stable is the primary toolchain (matches `rust-toolchain.toml`).
+        # The MSRV pin (`1.85`) catches accidental use of newer language features
+        # before they reach users (F-010, `proj-msrv-declare`).
+        toolchain: [stable, "1.85"]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.toolchain }}
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
@@ -7731,16 +7930,29 @@ Expected: final implementation history contains ten small, working commits and n
 - [ ] MCP `list_tools` and CLI parity tests match that source of truth.
 - [ ] Every parameter schema has `additionalProperties: false`.
 - [ ] Every tool has an output schema and explicit risk annotations.
+- [ ] Every tool description answers What / When / **When NOT** / Args / Returns / Errors, including a literal "Do NOT use this tool when …" anti-condition (F-012).
 - [ ] Search and collection preserve unknown upstream fields and every requested date.
 - [ ] Full idea context covers suggestion, comments, notes, supporters, feedback records, status updates, and activity.
 - [ ] Cursor/page continuation and checkpoint commit order are tested.
-- [ ] GET retries are bounded; writes are never retried by the client.
+- [ ] GET retries are bounded (`MAX_READ_ATTEMPTS = 3`, `MAX_RATE_LIMIT_SLEEP = 30s`); writes are never retried by the client.
+- [ ] Section-level 429 retries once via `retry_with_rate_limit_sleep` and then drops to `missing_sections` with `status = "partial"` (ADR-0006).
 - [ ] Preview/apply, 15-minute TTL, payload fingerprint, freshness, and idempotency are tested.
 - [ ] Partial writes return completed operations and never compensate.
+- [ ] Stale-preview `Conflict` returns `status = "conflict"` with `guidance` and the preview's `expires_at`; tests assert the agent recovery path forces a re-search before re-preview (ADR-0003).
+- [ ] `ClientError::NotFound` and all upstream/ledger errors map to MCP `internal_error` carrying a structured `Envelope` payload with `guidance`; only `AppError::Validation` maps to `invalid_params` (ADR-0003).
+- [ ] `OutcomeStatus::Partial` serialises on the wire with `isError: false`; the wire status token is produced by `OutcomeStatus::as_wire_status` (ADR-0002).
+- [ ] `Pagination` carries `has_more: bool` derived from `next.is_some()`; `next` is documented as an opaque cursor (ADR-0005).
+- [ ] `MAX_CONTEXT_PAGES = 100` cap returns `status = "conflict"` with `pagination.limit_hit: true` and a recovery `next_action` (ADR-0004).
+- [ ] `ClientError`, `OutcomeStatus`, and `AppError` are `#[non_exhaustive]`.
+- [ ] `validate_per_page` is the single source of truth for `1 <= per_page <= 100`, called by the CLI parser, the adapter request validator, and the collector filter.
+- [ ] `App::new` carries an invariant comment above the `expect`.
+- [ ] CI matrix runs both `stable` and `1.85` (F-010).
 - [ ] Token, emails, and message bodies are absent from logs and local ledgers.
 - [ ] `.env.test` remains ignored and mode `0600`.
 - [ ] Default CI is fully fixture-based; live smoke is explicit and read-only.
 - [ ] README, security guide, API map, and PM skill match the implemented contracts.
+- [ ] `CONTEXT.md` ubiquitous language matches the implemented crate, type, and tool names.
+- [ ] ADR-0001 through ADR-0006 in `docs/adr/` describe every deviation from the local skill templates that survives in the code.
 
 ## Primary references
 

@@ -1,6 +1,6 @@
 # UserVoice Agent Utility Design
 
-**Status:** design approved, with API-access preflight required before live use
+**Status:** design approved, with API-access preflight required before live use. Architectural decisions recorded in `docs/adr/0001` through `docs/adr/0006`; ubiquitous language in `CONTEXT.md`.
 
 **Decision:** build a local, single-user Rust workspace containing a stdio MCP server and a CLI. It serves an AI product-management agent that needs to collect UserVoice feedback, inspect one idea in full context, and safely implement product-feedback decisions.
 
@@ -64,8 +64,10 @@ The workspace has two crates:
 
 | Crate | Responsibility |
 |---|---|
-| `crates/uservoice_client` | Typed HTTP adapter, authentication header, UserVoice request/response models, pagination, rate-limit parsing, retries, and redaction. It has no MCP or Clap dependency. |
-| `crates/uservoice_agent` | Agent-facing application modules, MCP handler, CLI, change-preview/idempotency ledger, output envelopes, documentation, and tests. |
+| `crates/uservoice_client` | Typed HTTP adapter (DDD anti-corruption layer), authentication header, UserVoice request/response models, pagination, rate-limit parsing, retries, and redaction. It has no MCP or Clap dependency. |
+| `crates/rusty_user_voice` | Agent-facing application modules, MCP handler, CLI, change-preview/idempotency ledger, output envelopes, documentation, and tests. |
+
+The crate names split by DDD layer (adapter vs. application) rather than by protocol shape; the deviation from the `modern-rust-repo-structure` skill's `core`/`server`/`cli` template is recorded in ADR-0001.
 
 `main.rs` and `src/bin/cli.rs` are thin entry points. Both construct the same `App` and call the same application modules; CLI output formatting and MCP serialization are adapters, not places where product logic lives.
 
@@ -86,8 +88,8 @@ The public seams are small:
 
 | Setting | Source | Required | Notes |
 |---|---|---|---|
-| `USERVOICE_SUBDOMAIN` | environment variable or CLI flag | yes | validated as a subdomain, never accepted as an arbitrary base URL |
-| `USERVOICE_ACCESS_TOKEN` | environment variable only | yes for live calls | redacted in `Debug`, errors, tracing, CLI, and MCP output |
+| `USERVOICE_BASE_URL` | environment variable or `--base-url` | yes | tenant root or `/api/v2` form, normalized to one internal API root; rejects non-UserVoice remote hosts. Per `Accepted implementation clarifications` the canonical v1 name. |
+| `USERVOICE_API_KEY` | environment variable only | yes for live calls | the bearer access token despite the historical variable name. Never accepted as a CLI argument. Redacted in `Debug`, errors, tracing, CLI, and MCP output. |
 | `USERVOICE_STATE_DIR` | environment variable or platform application-state directory | no | holds the local preview/idempotency ledger and explicit CLI checkpoints; contains no access token |
 | `USERVOICE_MAX_IN_FLIGHT` | environment variable or CLI flag | no | defaults to `2` for bounded full-context collection |
 
@@ -96,6 +98,8 @@ The initial release does not read client ID/secret from a config file. If Suppor
 ## MCP interface
 
 All tools return schema-validated `structuredContent` and a compact text fallback. Every response contains `status`, `data`, `next_actions`, and, when relevant, `guidance`, `pagination`, `rate_limit`, or `applied_operations`. Resource IDs, `portal_url`, and `admin_url` are returned as stable anchors; the agent never has to re-describe an idea in natural language to address it again.
+
+**Outcome vocabulary** (ADR-0002). The application-layer enum is `OutcomeStatus { Ok, Partial, NoResults, Conflict }`; the MCP wire token is the canonical `{ "success", "partial", "no_results", "conflict" }` set, produced by a single mapping at the MCP server seam. `OutcomeStatus::Partial` is a valid degraded result, not a protocol error: it serialises with `isError: false` on the wire so the agent loop continues. Pagination payloads carry `per_page`, `total_records`, `next`, and a derived `has_more: bool` computed from `next.is_some()` (ADR-0005); `next` is an opaque continuation token (cursor or page) passed back verbatim.
 
 All tool parameters are top-level strings, integers, booleans, enums, or arrays of IDs. Nested arbitrary objects are rejected with `serde(deny_unknown_fields)`.
 
@@ -109,7 +113,7 @@ All tool parameters are top-level strings, integers, booleans, enums, or arrays 
 | `uservoice_publish_idea_update` | `mode`, `idea_id`, `status_id`, `message`, `notify_supporters`; apply requires `change_id`, `confirmation="apply"`, and `idempotency_key` | Previews or creates a public status update. Defaults to no supporter notification. | mutating, non-idempotent, open-world |
 | `uservoice_record_feedback` | `body`, `channel`, optional `idea_id`, `user_id`, `user_email`, `source_url`, `source_guid`, `created_at`; requires `idempotency_key` | Creates one feedback record with an explicit provenance link; returns the new record ID and its linked idea/user. | mutating, non-idempotent, open-world |
 
-The tool descriptions themselves are agent instructions: they state when to use the tool, when not to use it, limits, return fields, and recovery. `uservoice_workspace_context` supplies a small discovery path, while normal responses supply the next likely tool and concrete identifiers.
+The tool descriptions themselves are agent instructions: they state when to use the tool, when not to use it, limits, return fields, and recovery. `workspace_context` supplies a small discovery path, while normal responses supply the next likely tool and concrete identifiers.
 
 ## CLI interface
 
@@ -145,20 +149,22 @@ requested fields → preview → local change_id (15-minute TTL) → explicit ap
 
 - Input/schema failures map to MCP `invalid_params` and name the offending field plus a valid example.
 - `401`/`403` report `auth_unavailable` with the Admin Console/API-client path; the error never suggests SSO-cookie workarounds.
-- `404` returns `not_found` with a call to `search_ideas` when a query is available.
-- `429` returns the retry time and a continuation cursor; reads retry only within a small bounded budget.
-- `5xx` and network failures on reads have exponential backoff with jitter. Mutations stop and return their completion ledger.
+- `404` and stale-preview/state-mismatch conditions return MCP `internal_error` carrying a structured `Envelope` payload whose `status` is `not_found` or `conflict` respectively, with a `guidance` field naming the next call and, for stale previews only, the preview's `expires_at` so the agent can diagnose staleness. Application parameter validation is the *only* path to `invalid_params`; everything originating upstream, in the filesystem, or in the ledger goes through `internal_error` plus a structured envelope (ADR-0003).
+- `429` returns the retry time and a continuation cursor; reads retry only within a small bounded budget. Section-level 429 inside the bounded idea-context fan-out waits `retry_after` (capped at `MAX_RATE_LIMIT_SLEEP`) and retries once; a second 429 or any retry failure drops that section into `missing_sections` with `status = "partial"` and a guidance entry pointing at `uservoice_get_idea_context` (ADR-0006). Writes never retry.
+- `5xx` and network failures on reads have exponential backoff with jitter (`MAX_READ_ATTEMPTS = 3`, `MAX_RATE_LIMIT_SLEEP = 30s`). Mutations stop and return their completion ledger.
+- Hitting the `MAX_CONTEXT_PAGES = 100` per-section safety ceiling during collection returns `status = "conflict"` with `pagination.limit_hit: true` and a `guidance` field naming the narrower query — never silent truncation (ADR-0004).
 - Logs contain operation name, opaque idea ID, outcome, duration, rate-limit state, and counts. They exclude token values, email addresses, message/comment bodies, and any raw UserVoice response.
 - The program stores no feedback payload outside explicit CLI NDJSON output or the UserVoice system; the local ledger stores hashes and redacted operation metadata only.
 
 ## Rust implementation constraints
 
-- Rust 2024 edition, Tokio multi-thread runtime, RMCP `2.2`, Clap `4`.
+- Rust 2024 edition, MSRV `1.85` declared in `Cargo.toml` and pinned as a matrix entry in CI. Tokio multi-thread runtime, RMCP `2.2`, Clap `4`.
 - `reqwest` with rustls, Serde, Schemars, Thiserror, Tracing, URL parsing, and a local atomic-state implementation are permitted supporting crates.
 - Public IDs are semantic newtypes (`IdeaId`, `ForumId`, `CategoryId`, `StatusId`, `LabelId`, `UserId`, `FeedbackRecordId`), not interchangeable integers.
-- Library errors use `thiserror`; `anyhow` is restricted to binary startup and CLI presentation.
+- Library errors use `thiserror`; `anyhow` is restricted to binary startup and CLI presentation. Public error enums (`ClientError`, `OutcomeStatus`, `AppError`) are `#[non_exhaustive]`.
 - No production `unwrap`, no token/PII logging, no lock held across `await`, and no unsafe code.
 - Every parameter struct derives `Deserialize` and `JsonSchema`, rejects unknown fields, and documents validation rules.
+- `per_page` is validated through one helper (`uservoice_client::pagination::validate_per_page`) shared by the CLI parser, the adapter request validator, and the collector filter.
 
 ## Testing and verification design
 
@@ -188,6 +194,17 @@ The companion skill is an optional progressive-disclosure package. Its short `SK
 - A local cache/index and factual portfolio report after export volume proves that paging the API is insufficient.
 - An MCP App for a human-led backlog/roadmap dashboard.
 - An isolated `research_feedback` subagent after measuring whether it improves agent reliability enough to justify its added latency and reduced tool composability.
+
+## Architectural decisions
+
+The following ADRs in `docs/adr/` record non-obvious, hard-to-reverse choices. The spec text above is the authoritative description; the ADRs explain *why* specific deviations from the skill templates were taken.
+
+- **ADR-0001** — workspace crates are `uservoice_client` + `rusty_user_voice` (DDD layer split), not the skill's `core`/`server`/`cli`.
+- **ADR-0002** — application `OutcomeStatus` and the MCP wire status token are decoupled; `Partial` is `isError: false`.
+- **ADR-0003** — only `Validation` maps to `invalid_params`; `NotFound`, `Conflict`, and all upstream/ledger errors map to `internal_error` plus a structured envelope with `guidance`. Stale-preview `Conflict` echoes `expires_at`.
+- **ADR-0004** — collection safety cap returns `status = "conflict"` with `pagination.limit_hit: true` and a recovery `next_action`.
+- **ADR-0005** — pagination schema keeps `per_page`, `total_records`, `next` and adds `has_more: bool`; rejects `next_offset` as incompatible with cursor pagination.
+- **ADR-0006** — section-level 429 retries once (capped at `MAX_RATE_LIMIT_SLEEP`), then drops to `partial`.
 
 ## Sources
 

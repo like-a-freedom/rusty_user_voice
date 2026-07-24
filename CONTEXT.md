@@ -55,7 +55,7 @@ _Avoid_: comment, ticket, message
 ## Workflow concepts
 
 **Tool**:
-An MCP-exposed callable. Tool names follow `{service}_{verb}_{noun}` with the `uservoice_` prefix (`uservoice_search_ideas`, `uservoice_get_idea_context`, etc.). Seven tools exist; new agents assume the seven are exhaustive.
+An MCP-exposed callable. Seven tools exist: `workspace_context`, `search_ideas`, `get_idea_context`, `collect_ideas`, `update_idea`, `publish_idea_update`, and `record_feedback`. New agents assume the seven are exhaustive; the `uservoice_` prefix is a wire-level convention, not part of the bare tool name.
 _Avoid_: endpoint, command (when speaking about MCP)
 
 **Intent**:
@@ -78,7 +78,7 @@ Caller-chosen string that prevents duplicate side-effects on retry. Same key + i
 _Avoid_: request ID (without the same-key-replays-payload semantic)
 
 **Checkpoint**:
-A CLI-only resumption token (`uservoice collect-ideas --checkpoint-name …`). Captures the `continuation` cursor plus the time window so a long-failed collect run can resume. The MCP `uservoice_collect_ideas` tool does not store checkpoints.
+A CLI-only resumption token (`uservoice collect-ideas --checkpoint-name …`). Captures the `continuation` cursor plus the time window so a long-failed collect run can resume. The MCP `collect_ideas` tool does not store checkpoints.
 _Avoid_: cursor (for the named, on-disk bundle), session
 
 **Ledger**:
@@ -114,5 +114,5 @@ Every write follows preview → apply under an opaque change_id, with at-most-on
 _Avoid_: one-shot write, atomic write (without the preview gate)
 
 **Provenance**:
-For feedback imported from non-portal sources: the channel plus the source URL and/or source GUID. Provenance is part of the request to `uservoice_record_feedback` and a stored attribute on every recorded feedback record.
+For feedback imported from non-portal sources: the channel plus the source URL and/or source GUID. Provenance is part of the request to `record_feedback` and a stored attribute on every recorded feedback record.
 _Avoid_: metadata, context
