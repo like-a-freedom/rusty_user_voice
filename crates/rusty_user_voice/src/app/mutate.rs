@@ -78,6 +78,7 @@ impl<G: UserVoiceApi> App<G> {
             expires_at: Some(record.expires_at),
             changes,
             applied_operations: Vec::new(),
+            feedback_record_id: None,
         }))
     }
 
@@ -215,6 +216,7 @@ impl<G: UserVoiceApi> App<G> {
             expires_at: Some(record.expires_at),
             changes: Vec::new(),
             applied_operations: applied,
+            feedback_record_id: None,
         };
         ledger(self)?
             .complete(&idempotency_key, idempotency_fingerprint, result.clone())
@@ -244,6 +246,7 @@ impl<G: UserVoiceApi> App<G> {
             expires_at: Some(record.expires_at),
             changes: Vec::new(),
             applied_operations: applied,
+            feedback_record_id: None,
         };
         ledger(self)?
             .complete(

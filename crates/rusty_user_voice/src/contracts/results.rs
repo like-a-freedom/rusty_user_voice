@@ -98,4 +98,6 @@ pub struct MutationResult {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub changes: Vec<FieldChange>,
     pub applied_operations: Vec<AppliedOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback_record_id: Option<uservoice_client::FeedbackRecordId>,
 }

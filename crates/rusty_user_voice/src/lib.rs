@@ -13,6 +13,7 @@ pub mod ledger;
 pub mod mcp;
 
 pub use app::App;
+pub use app::feedback::FeedbackRecordResult;
 pub use checkpoint::{Checkpoint, CheckpointStore};
 pub use cli::{Cli, Command, IdeasCommand, OutputMode};
 pub use config::Settings;
