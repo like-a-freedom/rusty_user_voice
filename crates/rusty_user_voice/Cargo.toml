@@ -1,0 +1,36 @@
+[package]
+name = "rusty_user_voice"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "uservoice-mcp"
+path = "src/main.rs"
+
+[[bin]]
+name = "uservoice-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+uservoice_client = { path = "../uservoice_client" }
+uuid.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile = "3.27.0"
+wiremock.workspace = true
