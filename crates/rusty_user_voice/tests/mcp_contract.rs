@@ -25,6 +25,16 @@ fn public_tool_names_are_exactly_the_approved_seven() {
 }
 
 #[test]
+fn registered_tools_match_approved_seven() {
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let tools = UserVoiceMcpServer::new(app).tool_definitions();
+    assert_eq!(tools.len(), 7);
+    let registered: BTreeSet<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+    let expected: BTreeSet<&str> = ToolName::ALL.iter().map(|t| t.as_str()).collect();
+    assert_eq!(registered, expected);
+}
+
+#[test]
 fn read_tools_have_closed_input_schemas_and_explicit_risk_hints() {
     let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
     let tools = UserVoiceMcpServer::new(app).tool_definitions();
@@ -47,12 +57,53 @@ fn read_tools_have_closed_input_schemas_and_explicit_risk_hints() {
     }
 }
 
+#[test]
+fn mutation_tools_have_correct_risk_annotations() {
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let tools = UserVoiceMcpServer::new(app).tool_definitions();
+
+    let update = tools
+        .iter()
+        .find(|tool| tool.name == "uservoice_update_idea")
+        .expect("update tool");
+    let annotations = update.annotations.as_ref().expect("annotations");
+    assert_eq!(annotations.read_only_hint, Some(false));
+    assert_eq!(annotations.destructive_hint, Some(true));
+    assert_eq!(annotations.idempotent_hint, Some(false));
+    assert_eq!(annotations.open_world_hint, Some(true));
+
+    let feedback = tools
+        .iter()
+        .find(|tool| tool.name == "uservoice_record_feedback")
+        .expect("feedback tool");
+    let annotations = feedback.annotations.as_ref().expect("annotations");
+    assert_eq!(annotations.read_only_hint, Some(false));
+    assert_eq!(annotations.destructive_hint, Some(false));
+    assert_eq!(annotations.idempotent_hint, Some(true));
+    assert_eq!(annotations.open_world_hint, Some(true));
+}
+
+#[test]
+fn cli_intent_names_match_tool_names() {
+    let names: BTreeSet<&str> = rusty_user_voice::cli::intent_names().into_iter().collect();
+    let expected: BTreeSet<&str> = ToolName::ALL.iter().map(|t| t.as_str()).collect();
+    assert_eq!(names, expected);
+}
+
 #[tokio::test]
 async fn mcp_tool_calls_return_structured_output() {
     use rmcp::{ServiceExt, model::CallToolRequestParams};
 
-    let server =
-        UserVoiceMcpServer::new(App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2));
+    let directory = tempfile::tempdir().expect("state directory");
+    let api = support::FakeUserVoiceApi::complete();
+    let app = App::new(Arc::new(api.clone()), 2)
+        .with_ledger(Arc::new(rusty_user_voice::DiskChangeLedger::new(
+            directory.path().join("ledger"),
+        )))
+        .with_clock(Arc::new(rusty_user_voice::FixedClock::new(
+            chrono::Utc::now(),
+        )));
+    let server = UserVoiceMcpServer::new(app);
     let (server_transport, client_transport) = tokio::io::duplex(1 << 20);
     let server_task = tokio::spawn(async move {
         server
@@ -89,6 +140,34 @@ async fn mcp_tool_calls_return_structured_output() {
                 "per_page": 100
             }),
         ),
+        (
+            "uservoice_update_idea",
+            serde_json::json!({
+                "mode": "preview",
+                "idea_id": 101,
+                "title": "Clearer export title"
+            }),
+        ),
+        (
+            "uservoice_publish_idea_update",
+            serde_json::json!({
+                "mode": "preview",
+                "idea_id": 101,
+                "status_id": 13,
+                "message": "Scheduled",
+                "notify_supporters": false
+            }),
+        ),
+        (
+            "uservoice_record_feedback",
+            serde_json::json!({
+                "body": "Customer needs CSV export",
+                "channel": "api",
+                "idea_id": 101,
+                "source_guid": "fixture-case-42",
+                "idempotency_key": "fixture-feedback-42"
+            }),
+        ),
     ] {
         let result = client
             .call_tool(
@@ -96,8 +175,8 @@ async fn mcp_tool_calls_return_structured_output() {
                     .with_arguments(arguments.as_object().expect("object").clone()),
             )
             .await
-            .expect("tool");
-        assert_ne!(result.is_error, Some(true));
+            .expect("tool call");
+        assert_ne!(result.is_error, Some(true), "{name} returned a tool error");
         let output = result.structured_content.expect("structuredContent");
         let tool = tools
             .iter()
@@ -105,6 +184,28 @@ async fn mcp_tool_calls_return_structured_output() {
             .expect("definition");
         assert_matches_output_schema(tool, output);
     }
+
+    for tool in &tools {
+        assert_eq!(
+            tool.input_schema.get("additionalProperties"),
+            Some(&serde_json::Value::Bool(false)),
+            "{} accepts unknown root fields",
+            tool.name
+        );
+    }
+
+    let rejected = client
+        .call_tool(
+            CallToolRequestParams::new("uservoice_search_ideas").with_arguments(
+                serde_json::json!({"query": "export", "unknown": true})
+                    .as_object()
+                    .expect("object")
+                    .clone(),
+            ),
+        )
+        .await
+        .expect("RMCP returns argument decoding failures as a tool result");
+    assert_eq!(rejected.is_error, Some(true));
 
     client.cancel().await.expect("cancel");
     server_task.await.expect("join");

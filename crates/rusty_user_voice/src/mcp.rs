@@ -7,8 +7,9 @@ use rmcp::{
 use uservoice_client::UserVoiceApi;
 
 use crate::{
-    App, CollectIdeasParams, Envelope, GetIdeaContextParams, IdeaContext, IdeaPage,
-    SearchIdeasParams, ToolName, WorkspaceContext, WorkspaceContextParams,
+    App, CollectIdeasParams, Envelope, FeedbackRecordResult, GetIdeaContextParams, IdeaContext,
+    IdeaPage, PublishIdeaUpdateParams, RecordFeedbackParams, SearchIdeasParams, ToolName,
+    UpdateIdeaParams, WorkspaceContext, WorkspaceContextParams,
 };
 
 #[derive(Clone)]
@@ -107,6 +108,69 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
     ) -> Result<Json<Envelope<IdeaPage>>, McpError> {
         self.app
             .collect_ideas(params.0)
+            .await
+            .map(Json)
+            .map_err(Into::into)
+    }
+
+    #[tool(
+        name = "uservoice_update_idea",
+        description = "Safely update an idea. First call mode=preview with only requested fields. Then call mode=apply with the same fields plus returned change_id, confirmation=\"apply\", and a unique idempotency_key. Apply rejects stale ideas and reports partial upstream writes without rollback. Do NOT use this tool to publish a public status update — use publish_idea_update instead.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn update_idea(
+        &self,
+        params: Parameters<UpdateIdeaParams>,
+    ) -> Result<Json<Envelope<crate::MutationResult>>, McpError> {
+        self.app
+            .update_idea(params.0)
+            .await
+            .map(Json)
+            .map_err(Into::into)
+    }
+
+    #[tool(
+        name = "uservoice_publish_idea_update",
+        description = "Preview or publish a public idea status update. Defaults notify_supporters=false. Apply must repeat the preview payload and include change_id, confirmation=\"apply\", and idempotency_key. Use only after reviewing full idea context.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn publish_idea_update(
+        &self,
+        params: Parameters<PublishIdeaUpdateParams>,
+    ) -> Result<Json<Envelope<crate::MutationResult>>, McpError> {
+        self.app
+            .publish_idea_update(params.0)
+            .await
+            .map(Json)
+            .map_err(Into::into)
+    }
+
+    #[tool(
+        name = "uservoice_record_feedback",
+        description = "Create one provenance-aware feedback record. Provide a unique idempotency_key and link at least one idea_id, user_id, or user_email. This is additive and does not edit the idea.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn record_feedback(
+        &self,
+        params: Parameters<RecordFeedbackParams>,
+    ) -> Result<Json<Envelope<FeedbackRecordResult>>, McpError> {
+        self.app
+            .record_feedback(params.0)
             .await
             .map(Json)
             .map_err(Into::into)

@@ -126,6 +126,69 @@ pub async fn run_cli<G: UserVoiceApi>(
                         .await?;
                 }
             }
+            IdeasCommand::Update(args) => {
+                let result = app
+                    .update_idea(crate::UpdateIdeaParams {
+                        mode: args.mode.into(),
+                        idea_id: uservoice_client::IdeaId::new(args.idea_id),
+                        title: args.title,
+                        body: args.body,
+                        forum_id: args.forum_id.map(uservoice_client::ForumId::new),
+                        category_id: args.category_id.map(uservoice_client::CategoryId::new),
+                        assigned_owner_id: args
+                            .assigned_owner_id
+                            .map(uservoice_client::UserId::new),
+                        add_label_ids: args
+                            .add_label_ids
+                            .into_iter()
+                            .map(uservoice_client::LabelId::new)
+                            .collect(),
+                        remove_label_ids: args
+                            .remove_label_ids
+                            .into_iter()
+                            .map(uservoice_client::LabelId::new)
+                            .collect(),
+                        internal_note: args.internal_note,
+                        change_id: args.change_id.map(crate::ChangeId::from_uuid),
+                        confirmation: args.confirmation,
+                        idempotency_key: args.idempotency_key,
+                    })
+                    .await?;
+                write_result(output, mode, &result)?;
+            }
+            IdeasCommand::Publish(args) => {
+                let result = app
+                    .publish_idea_update(crate::PublishIdeaUpdateParams {
+                        mode: args.mode.into(),
+                        idea_id: uservoice_client::IdeaId::new(args.idea_id),
+                        status_id: uservoice_client::StatusId::new(args.status_id),
+                        message: args.message,
+                        notify_supporters: args.notify_supporters,
+                        change_id: args.change_id.map(crate::ChangeId::from_uuid),
+                        confirmation: args.confirmation,
+                        idempotency_key: args.idempotency_key,
+                    })
+                    .await?;
+                write_result(output, mode, &result)?;
+            }
+        },
+        Command::Feedback { command } => match *command {
+            crate::cli::FeedbackCommand::Record(args) => {
+                let result = app
+                    .record_feedback(crate::RecordFeedbackParams {
+                        body: args.body,
+                        channel: args.channel.into(),
+                        idea_id: args.idea_id.map(uservoice_client::IdeaId::new),
+                        user_id: args.user_id.map(uservoice_client::UserId::new),
+                        user_email: args.user_email,
+                        source_url: args.source_url,
+                        source_guid: args.source_guid,
+                        created_at: args.created_at,
+                        idempotency_key: args.idempotency_key,
+                    })
+                    .await?;
+                write_result(output, mode, &result)?;
+            }
         },
     }
     Ok(())

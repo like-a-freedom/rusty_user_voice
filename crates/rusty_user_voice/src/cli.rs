@@ -38,6 +38,10 @@ pub enum Command {
         #[command(subcommand)]
         command: Box<IdeasCommand>,
     },
+    Feedback {
+        #[command(subcommand)]
+        command: Box<FeedbackCommand>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -45,6 +49,13 @@ pub enum IdeasCommand {
     Search(SearchArgs),
     Get(GetArgs),
     Collect(CollectArgs),
+    Update(UpdateArgs),
+    Publish(PublishArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FeedbackCommand {
+    Record(RecordFeedbackArgs),
 }
 
 #[derive(Debug, Args)]
@@ -158,4 +169,126 @@ pub fn label_ids(values: Vec<i64>) -> Vec<LabelId> {
 
 pub fn idea_id(value: i64) -> IdeaId {
     IdeaId::new(value)
+}
+
+pub fn intent_names() -> Vec<&'static str> {
+    crate::ToolName::ALL
+        .iter()
+        .copied()
+        .map(crate::ToolName::as_str)
+        .collect()
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+    pub idea_id: i64,
+    #[arg(long, value_enum)]
+    pub mode: CliMutationMode,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub body: Option<String>,
+    #[arg(long)]
+    pub forum_id: Option<i64>,
+    #[arg(long)]
+    pub category_id: Option<i64>,
+    #[arg(long)]
+    pub assigned_owner_id: Option<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub add_label_ids: Vec<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub remove_label_ids: Vec<i64>,
+    #[arg(long)]
+    pub internal_note: Option<String>,
+    #[arg(long)]
+    pub change_id: Option<uuid::Uuid>,
+    #[arg(long)]
+    pub confirmation: Option<String>,
+    #[arg(long)]
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct PublishArgs {
+    pub idea_id: i64,
+    #[arg(long, value_enum)]
+    pub mode: CliMutationMode,
+    #[arg(long)]
+    pub status_id: i64,
+    #[arg(long)]
+    pub message: String,
+    #[arg(long, default_value_t = false)]
+    pub notify_supporters: bool,
+    #[arg(long)]
+    pub change_id: Option<uuid::Uuid>,
+    #[arg(long)]
+    pub confirmation: Option<String>,
+    #[arg(long)]
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum CliMutationMode {
+    Preview,
+    Apply,
+}
+
+impl From<CliMutationMode> for crate::MutationMode {
+    fn from(value: CliMutationMode) -> Self {
+        match value {
+            CliMutationMode::Preview => Self::Preview,
+            CliMutationMode::Apply => Self::Apply,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum CliFeedbackChannel {
+    Admin,
+    Api,
+    Bookmarklet,
+    Gainsight,
+    Import,
+    Portal,
+    Roadmap,
+    Slack,
+    Zendesk,
+}
+
+impl From<CliFeedbackChannel> for crate::FeedbackChannel {
+    fn from(value: CliFeedbackChannel) -> Self {
+        match value {
+            CliFeedbackChannel::Admin => Self::Admin,
+            CliFeedbackChannel::Api => Self::Api,
+            CliFeedbackChannel::Bookmarklet => Self::Bookmarklet,
+            CliFeedbackChannel::Gainsight => Self::Gainsight,
+            CliFeedbackChannel::Import => Self::Import,
+            CliFeedbackChannel::Portal => Self::Portal,
+            CliFeedbackChannel::Roadmap => Self::Roadmap,
+            CliFeedbackChannel::Slack => Self::Slack,
+            CliFeedbackChannel::Zendesk => Self::Zendesk,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct RecordFeedbackArgs {
+    #[arg(long)]
+    pub body: String,
+    #[arg(long, value_enum, default_value = "api")]
+    pub channel: CliFeedbackChannel,
+    #[arg(long)]
+    pub idea_id: Option<i64>,
+    #[arg(long)]
+    pub user_id: Option<i64>,
+    #[arg(long, conflicts_with = "user_id")]
+    pub user_email: Option<String>,
+    #[arg(long)]
+    pub source_url: Option<String>,
+    #[arg(long)]
+    pub source_guid: Option<String>,
+    #[arg(long)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[arg(long)]
+    pub idempotency_key: String,
 }
