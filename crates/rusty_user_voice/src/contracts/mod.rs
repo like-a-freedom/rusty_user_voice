@@ -3,8 +3,12 @@ mod results;
 pub mod tools;
 
 pub use params::{
-    CollectIdeasParams, DetailLevel, GetIdeaContextParams, SearchIdeasParams,
+    ChangeId, CollectIdeasParams, DetailLevel, FeedbackChannel, GetIdeaContextParams, MutationMode,
+    PublishIdeaUpdateParams, RecordFeedbackParams, SearchIdeasParams, UpdateIdeaParams,
     WorkspaceContextParams,
 };
-pub use results::{Envelope, IdeaContext, IdeaPage, NextAction, OutcomeStatus, WorkspaceContext};
+pub use results::{
+    AppliedOperation, Envelope, FieldChange, IdeaContext, IdeaPage, MutationResult, NextAction,
+    OutcomeStatus, WorkspaceContext,
+};
 pub use tools::ToolName;

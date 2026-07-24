@@ -1,9 +1,10 @@
 use std::future::Future;
 
 use crate::{
-    ActivityEntry, ClientError, Comment, ContextPage, Continuation, FeedbackRecord, IdeaId, Note,
-    RateLimit, SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter, User,
-    WorkspaceCatalog,
+    ActivityEntry, ClientError, Comment, ContextPage, Continuation, CreateFeedbackRecordRequest,
+    CreateStatusUpdateRequest, FeedbackRecord, IdeaId, LabelId, Note, RateLimit,
+    SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter,
+    UpdateSuggestionRequest, User, WorkspaceCatalog,
 };
 
 /// Successful API response envelope: parsed body plus optional rate-limit
@@ -85,4 +86,38 @@ pub trait UserVoiceApi: Clone + Send + Sync + 'static {
         idea_id: IdeaId,
         per_page: u32,
     ) -> impl Future<Output = Result<ApiResponse<ContextPage<ActivityEntry>>, ClientError>> + Send;
+
+    fn update_suggestion(
+        &self,
+        idea_id: IdeaId,
+        request: UpdateSuggestionRequest,
+    ) -> impl Future<Output = Result<ApiResponse<Suggestion>, ClientError>> + Send;
+
+    fn attach_label(
+        &self,
+        idea_id: IdeaId,
+        label_id: LabelId,
+    ) -> impl Future<Output = Result<ApiResponse<()>, ClientError>> + Send;
+
+    fn detach_label(
+        &self,
+        idea_id: IdeaId,
+        label_id: LabelId,
+    ) -> impl Future<Output = Result<ApiResponse<()>, ClientError>> + Send;
+
+    fn create_note(
+        &self,
+        idea_id: IdeaId,
+        body: String,
+    ) -> impl Future<Output = Result<ApiResponse<Note>, ClientError>> + Send;
+
+    fn create_status_update(
+        &self,
+        request: CreateStatusUpdateRequest,
+    ) -> impl Future<Output = Result<ApiResponse<StatusUpdate>, ClientError>> + Send;
+
+    fn create_feedback_record(
+        &self,
+        request: CreateFeedbackRecordRequest,
+    ) -> impl Future<Output = Result<ApiResponse<FeedbackRecord>, ClientError>> + Send;
 }

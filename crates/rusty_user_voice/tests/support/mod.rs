@@ -1,21 +1,42 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
+use chrono::{DateTime, Duration, Utc};
 use serde::de::DeserializeOwned;
 use uservoice_client::{
-    ActivityEntry, ApiResponse, ClientError, Comment, ContextPage, FeedbackRecord, IdeaId, Note,
-    Pagination, SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter,
-    User, UserVoiceApi, WorkspaceCatalog,
+    ActivityEntry, ApiResponse, ClientError, Comment, ContextPage, CreateFeedbackRecordRequest,
+    CreateStatusUpdateRequest, FeedbackRecord, IdeaId, LabelId, Note, Pagination,
+    SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter,
+    UpdateSuggestionRequest, User, UserVoiceApi, WorkspaceCatalog,
 };
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct RecordedWrite {
+    pub operation: &'static str,
+    pub notify_supporters: bool,
+}
 
 #[derive(Clone)]
 pub struct FakeUserVoiceApi {
     failed_sections: Arc<HashSet<&'static str>>,
+    suggestion_updated_at: Arc<Mutex<DateTime<Utc>>>,
+    writes: Arc<Mutex<Vec<RecordedWrite>>>,
+    fail_write_number: Arc<Mutex<Option<usize>>>,
 }
 
+#[allow(dead_code)]
 impl FakeUserVoiceApi {
     pub fn complete() -> Self {
         Self {
             failed_sections: Arc::new(HashSet::new()),
+            suggestion_updated_at: Arc::new(Mutex::new(
+                "2025-02-03T04:05:06Z".parse().expect("fixture date"),
+            )),
+            writes: Arc::new(Mutex::new(Vec::new())),
+            fail_write_number: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -23,7 +44,46 @@ impl FakeUserVoiceApi {
     pub fn with_failed_section(section: &'static str) -> Self {
         Self {
             failed_sections: Arc::new(HashSet::from([section])),
+            ..Self::complete()
         }
+    }
+
+    pub fn recorded_writes(&self) -> Vec<RecordedWrite> {
+        self.writes.lock().expect("writes lock").clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn count_writes(&self, operation: &str) -> usize {
+        self.recorded_writes()
+            .iter()
+            .filter(|write| write.operation == operation)
+            .count()
+    }
+
+    pub fn advance_suggestion_updated_at(&self) {
+        let mut value = self.suggestion_updated_at.lock().expect("updated_at lock");
+        *value += Duration::minutes(1);
+    }
+
+    pub fn fail_write_number(&self, number: usize) {
+        *self.fail_write_number.lock().expect("failure lock") = Some(number);
+    }
+
+    fn record_write(
+        &self,
+        operation: &'static str,
+        notify_supporters: bool,
+    ) -> Result<(), ClientError> {
+        let mut writes = self.writes.lock().expect("writes lock");
+        let next = writes.len() + 1;
+        if *self.fail_write_number.lock().expect("failure lock") == Some(next) {
+            return Err(ClientError::HttpStatus { status: 503 });
+        }
+        writes.push(RecordedWrite {
+            operation,
+            notify_supporters,
+        });
+        Ok(())
     }
 
     fn fail_if_requested(&self, section: &'static str) -> Result<(), ClientError> {
@@ -60,13 +120,15 @@ impl UserVoiceApi for FakeUserVoiceApi {
         _request: SearchSuggestionsRequest,
     ) -> Result<ApiResponse<SuggestionPage>, ClientError> {
         Ok(response(SuggestionPage {
-            items: vec![suggestion()],
+            items: vec![self.suggestion_value()],
             pagination: pagination(),
         }))
     }
 
     async fn suggestion(&self, _idea_id: IdeaId) -> Result<ApiResponse<Suggestion>, ClientError> {
-        Ok(response(suggestion()))
+        let mut value = self.suggestion_value();
+        value.updated_at = *self.suggestion_updated_at.lock().expect("updated_at lock");
+        Ok(response(value))
     }
 
     async fn comments(
@@ -152,6 +214,103 @@ impl UserVoiceApi for FakeUserVoiceApi {
             "event": "status_changed"
         }))])))
     }
+
+    async fn update_suggestion(
+        &self,
+        _idea_id: IdeaId,
+        _request: UpdateSuggestionRequest,
+    ) -> Result<ApiResponse<Suggestion>, ClientError> {
+        self.record_write("update_suggestion", false)?;
+        self.suggestion(IdeaId::new(101)).await
+    }
+
+    async fn attach_label(
+        &self,
+        _idea_id: IdeaId,
+        _label_id: LabelId,
+    ) -> Result<ApiResponse<()>, ClientError> {
+        self.record_write("attach_label", false)?;
+        Ok(response(()))
+    }
+
+    async fn detach_label(
+        &self,
+        _idea_id: IdeaId,
+        _label_id: LabelId,
+    ) -> Result<ApiResponse<()>, ClientError> {
+        self.record_write("detach_label", false)?;
+        Ok(response(()))
+    }
+
+    async fn create_note(
+        &self,
+        _idea_id: IdeaId,
+        _body: String,
+    ) -> Result<ApiResponse<Note>, ClientError> {
+        self.record_write("create_note", false)?;
+        Ok(response(json(serde_json::json!({
+            "id": 801,
+            "created_at": "2025-02-10T00:00:00Z",
+            "updated_at": "2025-02-10T00:00:00Z",
+            "body": "redacted fixture note"
+        }))))
+    }
+
+    async fn create_status_update(
+        &self,
+        request: CreateStatusUpdateRequest,
+    ) -> Result<ApiResponse<StatusUpdate>, ClientError> {
+        self.record_write("create_status_update", request.notify_supporters)?;
+        Ok(response(json(serde_json::json!({
+            "id": 901,
+            "created_at": "2025-02-11T00:00:00Z",
+            "updated_at": "2025-02-11T00:00:00Z",
+            "body": "fixture public update"
+        }))))
+    }
+
+    async fn create_feedback_record(
+        &self,
+        _request: CreateFeedbackRecordRequest,
+    ) -> Result<ApiResponse<FeedbackRecord>, ClientError> {
+        self.record_write("create_feedback_record", false)?;
+        Ok(response(json(serde_json::json!({
+            "id": 1001,
+            "created_at": "2025-02-12T00:00:00Z",
+            "updated_at": "2025-02-12T00:00:00Z",
+            "body": "fixture feedback"
+        }))))
+    }
+}
+
+impl FakeUserVoiceApi {
+    fn suggestion_value(&self) -> Suggestion {
+        json(serde_json::json!({
+            "id": 101,
+            "title": "Export roadmap as CSV",
+            "body": "We need a portable report.",
+            "body_mime_type": "text/plain",
+            "channel": "portal",
+            "state": "published",
+            "created_at": "2025-01-02T03:04:05Z",
+            "updated_at": "2025-02-03T04:05:06Z",
+            "closed_at": null,
+            "comments_count": 1,
+            "notes_count": 1,
+            "supporters_count": 1,
+            "requests_count": 1,
+            "portal_url": null,
+            "admin_url": null,
+            "links": {
+                "forum": 11,
+                "category": 12,
+                "status": 13,
+                "labels": [14],
+                "created_by": 7,
+                "assigned_owner": null
+            }
+        }))
+    }
 }
 
 fn response<T>(data: T) -> ApiResponse<T> {
@@ -176,34 +335,6 @@ fn pagination() -> Pagination {
         next: None,
         has_more: false,
     }
-}
-
-fn suggestion() -> Suggestion {
-    json(serde_json::json!({
-        "id": 101,
-        "title": "Export roadmap as CSV",
-        "body": "We need a portable report.",
-        "body_mime_type": "text/plain",
-        "channel": "portal",
-        "state": "published",
-        "created_at": "2025-01-02T03:04:05Z",
-        "updated_at": "2025-02-03T04:05:06Z",
-        "closed_at": null,
-        "comments_count": 1,
-        "notes_count": 1,
-        "supporters_count": 1,
-        "requests_count": 1,
-        "portal_url": null,
-        "admin_url": null,
-        "links": {
-            "forum": 11,
-            "category": 12,
-            "status": 13,
-            "labels": [14],
-            "created_by": 7,
-            "assigned_owner": null
-        }
-    }))
 }
 
 fn json<T: DeserializeOwned>(value: serde_json::Value) -> T {

@@ -39,4 +39,8 @@ pub use pagination::{
     Continuation, Pagination, UpstreamPagination, continuation_from_link, validate_per_page,
 };
 pub use rate_limit::RateLimit;
-pub use requests::SearchSuggestionsRequest;
+pub use requests::{
+    CreateFeedbackRecordLinks, CreateFeedbackRecordRequest, CreateNoteLinks, CreateNoteRequest,
+    CreateStatusUpdateLinks, CreateStatusUpdateRequest, FeedbackChannel, LabelMutationLinks,
+    LabelMutationRequest, SearchSuggestionsRequest, UpdateSuggestionLinks, UpdateSuggestionRequest,
+};

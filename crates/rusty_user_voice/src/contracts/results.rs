@@ -74,3 +74,28 @@ pub struct IdeaContext {
 pub struct IdeaPage {
     pub ideas: Vec<IdeaContext>,
 }
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+pub struct FieldChange {
+    pub field: String,
+    pub before: Option<String>,
+    pub after: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+pub struct AppliedOperation {
+    pub operation: String,
+    pub resource_id: Option<String>,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+pub struct MutationResult {
+    pub mode: crate::MutationMode,
+    pub change_id: Option<crate::ChangeId>,
+    pub idea_id: uservoice_client::IdeaId,
+    pub expected_updated_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub changes: Vec<FieldChange>,
+    pub applied_operations: Vec<AppliedOperation>,
+}

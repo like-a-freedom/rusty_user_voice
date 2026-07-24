@@ -214,3 +214,15 @@ collection_response!(SupportersResponse, supporters, Supporter);
 collection_response!(FeedbackRecordsResponse, feedback_records, FeedbackRecord);
 collection_response!(StatusUpdatesResponse, status_updates, StatusUpdate);
 collection_response!(ActivityResponse, suggestion_activity_entries, ActivityEntry);
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct MutationResponse {
+    #[serde(default)]
+    pub suggestions: Vec<Suggestion>,
+    #[serde(default)]
+    pub notes: Vec<Note>,
+    #[serde(default)]
+    pub status_updates: Vec<StatusUpdate>,
+    #[serde(default)]
+    pub feedback_records: Vec<FeedbackRecord>,
+}

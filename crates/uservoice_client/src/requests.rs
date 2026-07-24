@@ -1,6 +1,7 @@
 use chrono::{DateTime, SecondsFormat, Utc};
+use serde::Serialize;
 
-use crate::{CategoryId, ClientError, Continuation, ForumId, LabelId, StatusId};
+use crate::{CategoryId, ClientError, Continuation, ForumId, IdeaId, LabelId, StatusId, UserId};
 
 #[derive(Clone, Debug)]
 pub struct SearchSuggestionsRequest {
@@ -80,4 +81,98 @@ where
         .collect::<Vec<_>>()
         .join(",");
     pairs.push((key.to_owned(), joined));
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct UpdateSuggestionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub links: Option<UpdateSuggestionLinks>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct UpdateSuggestionLinks {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forum: Option<ForumId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<CategoryId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_owner: Option<UserId>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LabelMutationRequest {
+    pub links: LabelMutationLinks,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LabelMutationLinks {
+    pub label: LabelId,
+    pub suggestion: IdeaId,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateNoteRequest {
+    pub body: String,
+    pub body_mime_type: &'static str,
+    pub links: CreateNoteLinks,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateNoteLinks {
+    pub suggestion: IdeaId,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateStatusUpdateRequest {
+    pub body: String,
+    pub links: CreateStatusUpdateLinks,
+    pub notify_supporters: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateStatusUpdateLinks {
+    pub suggestion: IdeaId,
+    pub status: StatusId,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, schemars::JsonSchema, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackChannel {
+    Admin,
+    Api,
+    Bookmarklet,
+    Gainsight,
+    Import,
+    Portal,
+    Roadmap,
+    Slack,
+    Zendesk,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateFeedbackRecordRequest {
+    pub body: String,
+    pub body_mime_type: &'static str,
+    pub channel: FeedbackChannel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_guid: Option<String>,
+    pub links: CreateFeedbackRecordLinks,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateFeedbackRecordLinks {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<IdeaId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_email: Option<String>,
 }

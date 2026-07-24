@@ -3,13 +3,14 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     AccessToken, ActivityEntry, ApiEndpoint, ApiResponse, ClientError, Comment, ContextPage,
-    Continuation, FeedbackRecord, IdeaId, Note, Pagination, RateLimit, SearchSuggestionsRequest,
-    StatusUpdate, Suggestion, SuggestionPage, Supporter, UpstreamPagination, User, UserVoiceApi,
-    WorkspaceCatalog, continuation_from_link,
+    Continuation, CreateFeedbackRecordRequest, CreateNoteRequest, CreateStatusUpdateRequest,
+    FeedbackRecord, IdeaId, LabelId, Note, Pagination, RateLimit, SearchSuggestionsRequest,
+    StatusUpdate, Suggestion, SuggestionPage, Supporter, UpdateSuggestionRequest,
+    UpstreamPagination, User, UserVoiceApi, WorkspaceCatalog, continuation_from_link,
     models::{
         ActivityResponse, CategoriesResponse, CommentsResponse, FeedbackRecordsResponse,
-        ForumsResponse, LabelsResponse, NotesResponse, StatusUpdatesResponse, StatusesResponse,
-        SuggestionsResponse, SupportersResponse, UsersResponse,
+        ForumsResponse, LabelsResponse, MutationResponse, NotesResponse, StatusUpdatesResponse,
+        StatusesResponse, SuggestionsResponse, SupportersResponse, UsersResponse,
     },
     validate_per_page,
 };
@@ -223,6 +224,40 @@ impl ReqwestUserVoiceClient {
             section: path.to_owned(),
         })
     }
+
+    async fn put_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<ApiResponse<T>, ClientError> {
+        let url = self.endpoint.admin_url(path)?;
+        let response = self
+            .http
+            .put(url)
+            .bearer_auth(self.token.expose())
+            .json(body)
+            .send()
+            .await
+            .map_err(ClientError::Transport)?;
+        self.decode(response).await
+    }
+
+    async fn post_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<ApiResponse<T>, ClientError> {
+        let url = self.endpoint.admin_url(path)?;
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(self.token.expose())
+            .json(body)
+            .send()
+            .await
+            .map_err(ClientError::Transport)?;
+        self.decode(response).await
+    }
 }
 
 impl UserVoiceApi for ReqwestUserVoiceClient {
@@ -399,5 +434,140 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
             },
         )
         .await
+    }
+
+    async fn update_suggestion(
+        &self,
+        idea_id: IdeaId,
+        request: UpdateSuggestionRequest,
+    ) -> Result<ApiResponse<Suggestion>, ClientError> {
+        let response: ApiResponse<MutationResponse> = self
+            .put_json(&format!("suggestions/{idea_id}"), &request)
+            .await?;
+        let suggestion = response
+            .data
+            .suggestions
+            .into_iter()
+            .next()
+            .ok_or(ClientError::NotFound)?;
+        Ok(ApiResponse {
+            data: suggestion,
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
+    }
+
+    async fn attach_label(
+        &self,
+        idea_id: IdeaId,
+        label_id: LabelId,
+    ) -> Result<ApiResponse<()>, ClientError> {
+        let response: ApiResponse<serde_json::Value> = self
+            .post_json(
+                "labels/attach",
+                &crate::LabelMutationRequest {
+                    links: crate::LabelMutationLinks {
+                        label: label_id,
+                        suggestion: idea_id,
+                    },
+                },
+            )
+            .await?;
+        Ok(ApiResponse {
+            data: (),
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
+    }
+
+    async fn detach_label(
+        &self,
+        idea_id: IdeaId,
+        label_id: LabelId,
+    ) -> Result<ApiResponse<()>, ClientError> {
+        let response: ApiResponse<serde_json::Value> = self
+            .post_json(
+                "labels/detach",
+                &crate::LabelMutationRequest {
+                    links: crate::LabelMutationLinks {
+                        label: label_id,
+                        suggestion: idea_id,
+                    },
+                },
+            )
+            .await?;
+        Ok(ApiResponse {
+            data: (),
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
+    }
+
+    async fn create_note(
+        &self,
+        idea_id: IdeaId,
+        body: String,
+    ) -> Result<ApiResponse<Note>, ClientError> {
+        let response: ApiResponse<MutationResponse> = self
+            .post_json(
+                "notes",
+                &CreateNoteRequest {
+                    body,
+                    body_mime_type: "text/plain",
+                    links: crate::CreateNoteLinks {
+                        suggestion: idea_id,
+                    },
+                },
+            )
+            .await?;
+        let note = response
+            .data
+            .notes
+            .into_iter()
+            .next()
+            .ok_or(ClientError::NotFound)?;
+        Ok(ApiResponse {
+            data: note,
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
+    }
+
+    async fn create_status_update(
+        &self,
+        request: CreateStatusUpdateRequest,
+    ) -> Result<ApiResponse<StatusUpdate>, ClientError> {
+        let response: ApiResponse<MutationResponse> =
+            self.post_json("status_updates", &request).await?;
+        let update = response
+            .data
+            .status_updates
+            .into_iter()
+            .next()
+            .ok_or(ClientError::NotFound)?;
+        Ok(ApiResponse {
+            data: update,
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
+    }
+
+    async fn create_feedback_record(
+        &self,
+        request: CreateFeedbackRecordRequest,
+    ) -> Result<ApiResponse<FeedbackRecord>, ClientError> {
+        let response: ApiResponse<MutationResponse> =
+            self.post_json("feedback_records", &request).await?;
+        let feedback = response
+            .data
+            .feedback_records
+            .into_iter()
+            .next()
+            .ok_or(ClientError::NotFound)?;
+        Ok(ApiResponse {
+            data: feedback,
+            rate_limit: response.rate_limit,
+            continuation: response.continuation,
+        })
     }
 }
