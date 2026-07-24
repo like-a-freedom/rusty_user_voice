@@ -1,6 +1,9 @@
 use std::future::Future;
 
-use crate::{ClientError, Continuation, RateLimit, User};
+use crate::{
+    ClientError, Continuation, IdeaId, RateLimit, SearchSuggestionsRequest, Suggestion,
+    SuggestionPage, User, WorkspaceCatalog,
+};
 
 /// Successful API response envelope: parsed body plus optional rate-limit
 /// state and `Link: rel="next"` continuation extracted from headers.
@@ -20,10 +23,23 @@ pub struct ApiResponse<T> {
 /// stays zero-overhead (`async-fn-in-trait`, stable since Rust 1.75).
 pub trait UserVoiceApi: Clone + Send + Sync + 'static {
     /// Returns the authenticated principal. Acts as the access preflight.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ClientError::Authentication`] on 401/403,
-    /// [`ClientError::NotFound`] on 404, or any transport/decode variant.
     fn current_user(&self) -> impl Future<Output = Result<ApiResponse<User>, ClientError>> + Send;
+
+    /// Loads the full workspace taxonomy (forums, categories, statuses, labels)
+    /// across all pages.
+    fn workspace_catalog(
+        &self,
+    ) -> impl Future<Output = Result<ApiResponse<WorkspaceCatalog>, ClientError>> + Send;
+
+    /// Searches suggestions with UserVoice-native filter parameters.
+    fn search_suggestions(
+        &self,
+        request: SearchSuggestionsRequest,
+    ) -> impl Future<Output = Result<ApiResponse<SuggestionPage>, ClientError>> + Send;
+
+    /// Fetches a single suggestion with sideloaded associations.
+    fn suggestion(
+        &self,
+        idea_id: IdeaId,
+    ) -> impl Future<Output = Result<ApiResponse<Suggestion>, ClientError>> + Send;
 }

@@ -20,6 +20,7 @@ mod ids;
 mod models;
 mod pagination;
 mod rate_limit;
+mod requests;
 
 pub use api::{ApiResponse, UserVoiceApi};
 pub use auth::AccessToken;
@@ -30,8 +31,12 @@ pub use ids::{
     CategoryId, CommentId, FeedbackRecordId, ForumId, IdeaId, LabelId, NoteId, StatusId,
     StatusUpdateId, SupporterId, UserId,
 };
-pub use models::User;
+pub use models::{
+    Category, Forum, Label, Status, Suggestion, SuggestionLinks, SuggestionPage, User,
+    WorkspaceCatalog,
+};
 pub use pagination::{
     Continuation, Pagination, UpstreamPagination, continuation_from_link, validate_per_page,
 };
 pub use rate_limit::RateLimit;
+pub use requests::SearchSuggestionsRequest;

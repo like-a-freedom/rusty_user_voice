@@ -1,0 +1,6 @@
+{
+  "forums": [{"id": 11, "name": "Product Ideas", "is_public": false}],
+  "categories": [{"id": 12, "name": "Reporting", "links": {"forum": 11}}],
+  "statuses": [{"id": 13, "name": "Planned", "is_open": true}],
+  "labels": [{"id": 14, "name": "export"}]
+}
