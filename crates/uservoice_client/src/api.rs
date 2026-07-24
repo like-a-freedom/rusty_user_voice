@@ -1,8 +1,9 @@
 use std::future::Future;
 
 use crate::{
-    ClientError, Continuation, IdeaId, RateLimit, SearchSuggestionsRequest, Suggestion,
-    SuggestionPage, User, WorkspaceCatalog,
+    ActivityEntry, ClientError, Comment, ContextPage, Continuation, FeedbackRecord, IdeaId, Note,
+    RateLimit, SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter, User,
+    WorkspaceCatalog,
 };
 
 /// Successful API response envelope: parsed body plus optional rate-limit
@@ -42,4 +43,46 @@ pub trait UserVoiceApi: Clone + Send + Sync + 'static {
         &self,
         idea_id: IdeaId,
     ) -> impl Future<Output = Result<ApiResponse<Suggestion>, ClientError>> + Send;
+
+    /// Fetches all comments for a suggestion, following pagination.
+    fn comments(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<Comment>>, ClientError>> + Send;
+
+    /// Fetches all notes for a suggestion, following pagination.
+    fn notes(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<Note>>, ClientError>> + Send;
+
+    /// Fetches all supporters for a suggestion, following pagination.
+    fn supporters(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<Supporter>>, ClientError>> + Send;
+
+    /// Fetches all feedback records for a suggestion, following pagination.
+    fn feedback_records(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<FeedbackRecord>>, ClientError>> + Send;
+
+    /// Fetches all status updates for a suggestion, following pagination.
+    fn status_updates(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<StatusUpdate>>, ClientError>> + Send;
+
+    /// Fetches all activity entries for a suggestion, following pagination.
+    fn activity(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> impl Future<Output = Result<ApiResponse<ContextPage<ActivityEntry>>, ClientError>> + Send;
 }

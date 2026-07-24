@@ -154,3 +154,63 @@ pub(crate) struct LabelsResponse {
     #[serde(default)]
     pub pagination: UpstreamPagination,
 }
+
+macro_rules! context_record {
+    ($name:ident, $id:ty) => {
+        #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+        pub struct $name {
+            pub id: $id,
+            pub created_at: Option<DateTime<Utc>>,
+            pub updated_at: Option<DateTime<Utc>>,
+            #[serde(flatten)]
+            pub extra: BTreeMap<String, Value>,
+        }
+    };
+}
+
+context_record!(Comment, crate::CommentId);
+context_record!(Note, crate::NoteId);
+context_record!(FeedbackRecord, crate::FeedbackRecordId);
+context_record!(StatusUpdate, crate::StatusUpdateId);
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+pub struct Supporter {
+    pub id: crate::SupporterId,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+pub struct ActivityEntry {
+    pub id: i64,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContextPage<T> {
+    pub items: Vec<T>,
+    pub pagination: Pagination,
+}
+
+macro_rules! collection_response {
+    ($name:ident, $field:ident, $item:ty) => {
+        #[derive(Debug, Deserialize)]
+        pub(crate) struct $name {
+            pub $field: Vec<$item>,
+            #[serde(default)]
+            pub pagination: UpstreamPagination,
+        }
+    };
+}
+
+collection_response!(CommentsResponse, comments, Comment);
+collection_response!(NotesResponse, notes, Note);
+collection_response!(SupportersResponse, supporters, Supporter);
+collection_response!(FeedbackRecordsResponse, feedback_records, FeedbackRecord);
+collection_response!(StatusUpdatesResponse, status_updates, StatusUpdate);
+collection_response!(ActivityResponse, suggestion_activity_entries, ActivityEntry);

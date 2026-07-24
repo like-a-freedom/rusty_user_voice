@@ -2,13 +2,16 @@ use reqwest::{Client, Response, StatusCode};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    AccessToken, ApiEndpoint, ApiResponse, ClientError, Continuation, IdeaId, Pagination,
-    RateLimit, SearchSuggestionsRequest, Suggestion, SuggestionPage, UpstreamPagination, User,
-    UserVoiceApi, WorkspaceCatalog, continuation_from_link,
+    AccessToken, ActivityEntry, ApiEndpoint, ApiResponse, ClientError, Comment, ContextPage,
+    Continuation, FeedbackRecord, IdeaId, Note, Pagination, RateLimit, SearchSuggestionsRequest,
+    StatusUpdate, Suggestion, SuggestionPage, Supporter, UpstreamPagination, User, UserVoiceApi,
+    WorkspaceCatalog, continuation_from_link,
     models::{
-        CategoriesResponse, ForumsResponse, LabelsResponse, StatusesResponse, SuggestionsResponse,
-        UsersResponse,
+        ActivityResponse, CategoriesResponse, CommentsResponse, FeedbackRecordsResponse,
+        ForumsResponse, LabelsResponse, NotesResponse, StatusUpdatesResponse, StatusesResponse,
+        SuggestionsResponse, SupportersResponse, UsersResponse,
     },
+    validate_per_page,
 };
 
 /// Production HTTP adapter satisfying [`UserVoiceApi`].
@@ -148,6 +151,78 @@ impl ReqwestUserVoiceClient {
             section: path.to_owned(),
         })
     }
+
+    const MAX_CONTEXT_PAGES: usize = 100;
+
+    fn idea_filter(
+        idea_id: IdeaId,
+        per_page: u32,
+        continuation: Option<&Continuation>,
+    ) -> Result<Vec<(String, String)>, ClientError> {
+        validate_per_page(per_page)?;
+        let mut query = vec![
+            ("suggestion".to_owned(), idea_id.to_string()),
+            ("per_page".to_owned(), per_page.to_string()),
+        ];
+        match continuation {
+            Some(Continuation::Cursor { cursor }) => {
+                query.push(("cursor".to_owned(), cursor.clone()));
+            }
+            Some(Continuation::Page { page }) => {
+                query.push(("page".to_owned(), page.to_string()));
+            }
+            None => {}
+        }
+        Ok(query)
+    }
+
+    async fn collect_context<T, R>(
+        &self,
+        path: &str,
+        idea_id: IdeaId,
+        per_page: u32,
+        extract: impl Fn(R) -> (Vec<T>, UpstreamPagination),
+    ) -> Result<ApiResponse<ContextPage<T>>, ClientError>
+    where
+        R: serde::de::DeserializeOwned,
+    {
+        let mut items = Vec::new();
+        let mut continuation = None;
+        let mut total_records = None;
+        let mut rate_limit = None;
+
+        for _ in 0..Self::MAX_CONTEXT_PAGES {
+            let query = Self::idea_filter(idea_id, per_page, continuation.as_ref())?;
+            let response: ApiResponse<R> = self.get(path, &query).await?;
+            let (mut page_items, upstream) = extract(response.data);
+            let pagination = Pagination::from_upstream(upstream, response.continuation);
+            total_records = pagination.total_records.or(total_records);
+            rate_limit = response.rate_limit.or(rate_limit);
+            items.append(&mut page_items);
+            match pagination.next {
+                Some(next) => continuation = Some(next),
+                None => {
+                    return Ok(ApiResponse {
+                        data: ContextPage {
+                            items,
+                            pagination: Pagination {
+                                per_page,
+                                total_records,
+                                next: None,
+                                has_more: false,
+                            },
+                        },
+                        rate_limit,
+                        continuation: None,
+                    });
+                }
+            }
+        }
+
+        Err(ClientError::PaginationLimit {
+            section: path.to_owned(),
+        })
+    }
 }
 
 impl UserVoiceApi for ReqwestUserVoiceClient {
@@ -241,5 +316,88 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
             rate_limit: response.rate_limit,
             continuation: response.continuation,
         })
+    }
+
+    async fn comments(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<Comment>>, ClientError> {
+        self.collect_context(
+            "comments",
+            idea_id,
+            per_page,
+            |response: CommentsResponse| (response.comments, response.pagination),
+        )
+        .await
+    }
+
+    async fn notes(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<Note>>, ClientError> {
+        self.collect_context("notes", idea_id, per_page, |response: NotesResponse| {
+            (response.notes, response.pagination)
+        })
+        .await
+    }
+
+    async fn supporters(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<Supporter>>, ClientError> {
+        self.collect_context(
+            "supporters",
+            idea_id,
+            per_page,
+            |response: SupportersResponse| (response.supporters, response.pagination),
+        )
+        .await
+    }
+
+    async fn feedback_records(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<FeedbackRecord>>, ClientError> {
+        self.collect_context(
+            "feedback_records",
+            idea_id,
+            per_page,
+            |response: FeedbackRecordsResponse| (response.feedback_records, response.pagination),
+        )
+        .await
+    }
+
+    async fn status_updates(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<StatusUpdate>>, ClientError> {
+        self.collect_context(
+            "status_updates",
+            idea_id,
+            per_page,
+            |response: StatusUpdatesResponse| (response.status_updates, response.pagination),
+        )
+        .await
+    }
+
+    async fn activity(
+        &self,
+        idea_id: IdeaId,
+        per_page: u32,
+    ) -> Result<ApiResponse<ContextPage<ActivityEntry>>, ClientError> {
+        self.collect_context(
+            "suggestion_activity_entries",
+            idea_id,
+            per_page,
+            |response: ActivityResponse| {
+                (response.suggestion_activity_entries, response.pagination)
+            },
+        )
+        .await
     }
 }

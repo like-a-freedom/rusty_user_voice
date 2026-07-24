@@ -5,7 +5,7 @@ use uservoice_client::{
 };
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{header, method, path, query_param},
+    matchers::{header, method, path, query_param, query_param_is_missing},
 };
 
 #[tokio::test]
@@ -137,4 +137,55 @@ async fn workspace_catalog_drains_all_taxonomy_collections() {
     assert_eq!(catalog.categories[0].id.get(), 12);
     assert_eq!(catalog.statuses[0].id.get(), 13);
     assert_eq!(catalog.labels[0].id.get(), 14);
+}
+
+#[tokio::test]
+async fn context_collection_follows_next_link_until_every_record_is_loaded() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/comments"))
+        .and(query_param("suggestion", "101"))
+        .and(query_param("per_page", "100"))
+        .and(query_param_is_missing("cursor"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "Link",
+                    format!(
+                        "<{}/api/v2/admin/comments?suggestion=101&per_page=100&cursor=next-2>; rel=\"next\"",
+                        server.uri()
+                    ),
+                )
+                .set_body_json(serde_json::json!({
+                    "comments": [{"id": 201, "created_at": null, "updated_at": null}],
+                    "pagination": {"per_page": 100}
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/comments"))
+        .and(query_param("cursor", "next-2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "comments": [{"id": 202, "created_at": null, "updated_at": null}],
+            "pagination": {"per_page": 100}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let page = fixture_client(&server)
+        .comments(IdeaId::new(101), 100)
+        .await
+        .expect("all comments")
+        .data;
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| item.id.get())
+            .collect::<Vec<_>>(),
+        [201, 202]
+    );
+    assert!(page.pagination.next.is_none());
 }
