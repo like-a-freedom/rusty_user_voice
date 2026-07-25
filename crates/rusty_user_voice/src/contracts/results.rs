@@ -8,10 +8,11 @@ use uservoice_client::{
 };
 
 /// Application-layer outcome enum. Source of truth for `Envelope<T>::status`.
-/// The MCP wire token (`"success"`, `"partial"`, `"no_results"`, `"conflict"`)
-/// is produced by `OutcomeStatus::as_wire_status` at the MCP server seam — see
-/// ADR-0002. `Partial` serialises on the wire with `isError: false` so the agent
-/// loop continues.
+///
+/// The MCP wire token is produced by serde via `#[serde(rename_all =
+/// "snake_case")]` — the variants serialise to `"ok"`, `"partial"`,
+/// `"no_results"`, and `"conflict"` respectively (ADR-0002). `Partial`
+/// serialises on the wire with `isError: false` so the agent loop continues.
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -20,18 +21,6 @@ pub enum OutcomeStatus {
     Partial,
     NoResults,
     Conflict,
-}
-
-impl OutcomeStatus {
-    /// Returns the canonical MCP wire status token. See ADR-0002.
-    pub const fn as_wire_status(self) -> &'static str {
-        match self {
-            Self::Ok => "success",
-            Self::Partial => "partial",
-            Self::NoResults => "no_results",
-            Self::Conflict => "conflict",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]

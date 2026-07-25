@@ -7940,7 +7940,7 @@ Expected: final implementation history contains ten small, working commits and n
 - [ ] Partial writes return completed operations and never compensate.
 - [ ] Stale-preview `Conflict` returns `status = "conflict"` with `guidance` and the preview's `expires_at`; tests assert the agent recovery path forces a re-search before re-preview (ADR-0003).
 - [ ] `ClientError::NotFound` and all upstream/ledger errors map to MCP `internal_error` carrying a structured `Envelope` payload with `guidance`; only `AppError::Validation` maps to `invalid_params` (ADR-0003).
-- [ ] `OutcomeStatus::Partial` serialises on the wire with `isError: false`; the wire status token is produced by `OutcomeStatus::as_wire_status` (ADR-0002).
+- [ ] `OutcomeStatus::Partial` serialises on the wire with `isError: false`; the wire status token is produced by serde through `#[serde(rename_all = "snake_case")]` and the variants are `"ok"`, `"partial"`, `"no_results"`, and `"conflict"` (ADR-0002).
 - [ ] `Pagination` carries `has_more: bool` derived from `next.is_some()`; `next` is documented as an opaque cursor (ADR-0005).
 - [ ] `MAX_CONTEXT_PAGES = 100` cap returns `status = "conflict"` with `pagination.limit_hit: true` and a recovery `next_action` (ADR-0004).
 - [ ] `ClientError`, `OutcomeStatus`, and `AppError` are `#[non_exhaustive]`.
