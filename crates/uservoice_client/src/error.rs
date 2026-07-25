@@ -30,5 +30,13 @@ pub enum ClientError {
     #[error("UserVoice returned no current user")]
     MissingCurrentUser,
     #[error("UserVoice {section} pagination exceeded the 100-page safety ceiling")]
-    PaginationLimit { section: String },
+    PaginationLimit {
+        section: String,
+        /// `true` when the bounded fan-out (`MAX_CONTEXT_PAGES = 100`) hit its
+        /// safety ceiling while paging through a context section (ADR-0004).
+        /// Surfaced as `status = "conflict"` with `pagination.limit_hit =
+        /// true` in the wire envelope so the agent can recover with a
+        /// narrower query instead of seeing silent truncation.
+        limit_hit: bool,
+    },
 }

@@ -32,6 +32,26 @@ impl From<AppError> for McpError {
                     "guidance": "call uservoice_search_ideas to refresh the idea_id",
                 })),
             ),
+            AppError::Client(uservoice_client::ClientError::PaginationLimit {
+                section,
+                limit_hit: true,
+            }) => McpError::internal_error(
+                "context section pagination exceeded the 100-page safety ceiling",
+                Some(serde_json::json!({
+                    "status": "conflict",
+                    "guidance": format!(
+                        "section '{section}' hit the bounded fan-out safety ceiling \
+                         (ADR-0004); refine the query with a smaller date range or idea \
+                         filter, then call uservoice_search_ideas first"
+                    ),
+                    "pagination": { "limit_hit": true },
+                    "next_actions": [{
+                        "tool": "uservoice_search_ideas",
+                        "reason": "narrow the query so each context section can be drained in ≤100 pages",
+                        "arguments": { "page": 1 },
+                    }],
+                })),
+            ),
             AppError::Conflict(message) => McpError::internal_error(
                 message.clone(),
                 Some(serde_json::json!({
@@ -56,5 +76,54 @@ fn conflict_guidance(message: &str) -> String {
         )
     } else {
         "state mismatch; re-read the affected resource and re-issue the preview".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pagination_limit_surfaces_as_conflict_with_limit_hit_and_next_action() {
+        let err: McpError = AppError::Client(uservoice_client::ClientError::PaginationLimit {
+            section: "comments".to_owned(),
+            limit_hit: true,
+        })
+        .into();
+        let payload = err
+            .data
+            .as_ref()
+            .expect("pagination-limit error must carry data");
+        assert_eq!(payload["status"], "conflict");
+        assert_eq!(payload["pagination"]["limit_hit"], serde_json::json!(true));
+        let actions = payload["next_actions"]
+            .as_array()
+            .expect("next_actions array");
+        assert!(
+            actions
+                .iter()
+                .any(|a| a["tool"] == "uservoice_search_ideas"),
+            "next_actions must include uservoice_search_ideas"
+        );
+        assert!(
+            payload["guidance"]
+                .as_str()
+                .expect("guidance string")
+                .contains("comments"),
+            "guidance should name the capped section"
+        );
+    }
+
+    #[test]
+    fn pagination_limit_without_limit_hit_falls_through() {
+        let err: McpError = AppError::Client(uservoice_client::ClientError::PaginationLimit {
+            section: "forums".to_owned(),
+            limit_hit: false,
+        })
+        .into();
+        assert!(
+            err.data.is_none() || err.data.as_ref().unwrap().get("status").is_none(),
+            "non-conflict pagination caps must not get a status payload"
+        );
     }
 }

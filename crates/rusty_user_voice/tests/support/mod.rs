@@ -334,6 +334,7 @@ fn pagination() -> Pagination {
         total_records: Some(1),
         next: None,
         has_more: false,
+        limit_hit: false,
     }
 }
 

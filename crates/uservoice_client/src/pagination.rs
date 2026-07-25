@@ -40,6 +40,12 @@ pub struct Pagination {
     /// `has_more` rather than `next_offset` because UserVoice cursors are
     /// opaque and cannot be expressed as a numeric offset (ADR-0005).
     pub has_more: bool,
+    /// `true` when the request was truncated because the bounded fan-out
+    /// (`MAX_CONTEXT_PAGES = 100`) hit its safety ceiling (ADR-0004). Always
+    /// `false` in successful responses; surfaced alongside `status =
+    /// "conflict"` when the safety cap trips.
+    #[serde(default)]
+    pub limit_hit: bool,
 }
 
 impl Pagination {
@@ -66,6 +72,7 @@ impl Pagination {
             total_records: value.total_records,
             next,
             has_more,
+            limit_hit: false,
         }
     }
 }
@@ -216,5 +223,21 @@ mod tests {
             validate_per_page(101),
             Err(crate::ClientError::Validation { .. })
         ));
+    }
+
+    #[test]
+    fn from_upstream_sets_limit_hit_false() {
+        let pagination = Pagination::from_upstream(
+            UpstreamPagination {
+                page: Some(1),
+                per_page: Some(100),
+                total_pages: Some(1),
+                total_records: Some(42),
+                cursor: None,
+            },
+            None,
+        );
+        assert!(!pagination.has_more);
+        assert!(!pagination.limit_hit);
     }
 }

@@ -197,6 +197,7 @@ impl ReqwestUserVoiceClient {
         }
         Err(ClientError::PaginationLimit {
             section: path.to_owned(),
+            limit_hit: false,
         })
     }
 
@@ -306,6 +307,7 @@ impl ReqwestUserVoiceClient {
                                 total_records,
                                 next: None,
                                 has_more: false,
+                                limit_hit: false,
                             },
                         },
                         rate_limit,
@@ -317,6 +319,7 @@ impl ReqwestUserVoiceClient {
 
         Err(ClientError::PaginationLimit {
             section: path.to_owned(),
+            limit_hit: true,
         })
     }
 
