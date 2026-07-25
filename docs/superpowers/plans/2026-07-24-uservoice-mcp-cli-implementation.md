@@ -17,7 +17,7 @@
 - `.env.test` remains ignored and must have mode `0600` before any live call. Tests and documentation must never read or snapshot its value.
 - The public MCP surface is exactly seven tools: `uservoice_workspace_context`, `uservoice_search_ideas`, `uservoice_get_idea_context`, `uservoice_collect_ideas`, `uservoice_update_idea`, `uservoice_publish_idea_update`, and `uservoice_record_feedback`.
 - Every MCP parameter struct derives `Deserialize` and `JsonSchema` and uses `#[serde(deny_unknown_fields)]`.
-- Every MCP success returns schema-backed structured content with `status`, `data`, `next_actions`, and optional `guidance`, `pagination`, or `rate_limit`. The application-layer outcome enum is `OutcomeStatus { Ok, Partial, NoResults, Conflict }`; the MCP wire token is the canonical `{ "success", "partial", "no_results", "conflict" }` set, produced by one mapping at the MCP server seam (ADR-0002). `OutcomeStatus::Partial` serialises with `isError: false` on the wire so the agent loop continues.
+- Every MCP success returns schema-backed structured content with `status`, `data`, `next_actions`, and optional `guidance`, `pagination`, or `rate_limit`. The application-layer outcome enum is `OutcomeStatus { Ok, Partial, NoResults, Conflict }`; the MCP wire token is the canonical `{ "ok", "partial", "no_results", "conflict" }` set, produced by serde via `#[serde(rename_all = "snake_case")]` on the enum (ADR-0002). `OutcomeStatus::Partial` serialises with `isError: false` on the wire so the agent loop continues.
 - Only application parameter validation (`AppError::Validation`) maps to MCP `invalid_params`. Everything originating upstream (`NotFound`, `RateLimited`, `Authentication`, transport, decoding), in the filesystem (`Io`), or in the ledger (`Conflict`, `State`) maps to MCP `internal_error` carrying a structured `Envelope` payload whose `status` is `not_found` or `conflict` with a `guidance` field naming the next call. Stale-preview `Conflict` additionally echoes the preview's `expires_at` (ADR-0003). RMCP 2.2 still converts parameter-deserialization failures (including unknown fields) into its standard tool result with `isError: true`.
 - Pagination payloads carry `per_page`, `total_records`, `next`, and a derived `has_more: bool` computed from `next.is_some()`; `next` is an opaque cursor/page token passed back verbatim (ADR-0005).
 - Section-level 429 inside the bounded idea-context fan-out waits `retry_after` (capped at `MAX_RATE_LIMIT_SLEEP`) and retries once; a second 429 or any retry failure drops that section into `missing_sections` with `status = "partial"` (ADR-0006). Writes never retry.
@@ -2366,10 +2366,11 @@ use uservoice_client::{
 };
 
 /// Application-layer outcome enum. Source of truth for `Envelope<T>::status`.
-/// The MCP wire token (`"success"`, `"partial"`, `"no_results"`, `"conflict"`)
-/// is produced by `OutcomeStatus::as_wire_status` at the MCP server seam — see
-/// ADR-0002. `Partial` serialises on the wire with `isError: false` so the agent
-/// loop continues.
+///
+/// The MCP wire token is produced by serde via `#[serde(rename_all =
+/// "snake_case")]` — the variants serialise to `"ok"`, `"partial"`,
+/// `"no_results"`, and `"conflict"` respectively (ADR-0002). `Partial`
+/// serialises on the wire with `isError: false` so the agent loop continues.
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -2378,18 +2379,6 @@ pub enum OutcomeStatus {
     Partial,
     NoResults,
     Conflict,
-}
-
-impl OutcomeStatus {
-    /// Returns the canonical MCP wire status token. See ADR-0002.
-    pub const fn as_wire_status(self) -> &'static str {
-        match self {
-            Self::Ok => "success",
-            Self::Partial => "partial",
-            Self::NoResults => "no_results",
-            Self::Conflict => "conflict",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]

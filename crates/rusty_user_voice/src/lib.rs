@@ -33,9 +33,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// and CLI binaries) and reading the `RUST_LOG` env filter when present.
 ///
 /// Idempotent — safe to call from both `main` and tests; subsequent calls are
-/// no-ops. Returns the original `Result` from `try_init` so callers can decide
-/// whether to log a warning when a subscriber was already installed by a
-/// test harness.
+/// no-ops and return `Ok(())`. The first call's outcome (success or the
+/// `try_init` error if a global subscriber was already installed elsewhere)
+/// is reported back so the caller can decide whether to log a warning.
 pub fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     static INIT: std::sync::Once = std::sync::Once::new();
     let mut result: Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> = Ok(());

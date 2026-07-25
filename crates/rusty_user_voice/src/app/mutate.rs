@@ -1,6 +1,6 @@
 use crate::{
-    App, AppliedOperation, Envelope, FieldChange, MutationMode, MutationResult, OutcomeStatus,
-    PreviewKind, PreviewRecord, UpdateIdeaParams,
+    App, AppliedOperation, Envelope, FieldChange, MutationMode, MutationResult, PreviewKind,
+    PreviewRecord, UpdateIdeaParams,
     error::AppError,
     ledger::{Claim, PREVIEW_TTL, fingerprint},
 };
@@ -256,13 +256,7 @@ impl<G: UserVoiceApi> App<G> {
                 result.clone(),
             )
             .await?;
-        let mut envelope = mutation_envelope(result);
-        envelope.status = OutcomeStatus::Partial;
-        envelope.guidance = Some(
-            "Do not retry with a new key. Refresh the idea context and inspect completed operations."
-                .to_owned(),
-        );
-        Ok(envelope)
+        Ok(mutation_envelope(result))
     }
 }
 

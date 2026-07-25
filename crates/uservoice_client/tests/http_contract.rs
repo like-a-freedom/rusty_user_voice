@@ -265,13 +265,17 @@ async fn tracing_never_contains_upstream_bodies_or_token() {
     const EMAIL: &str = "private-person@example.invalid";
     const BODY: &str = "private feedback body";
     let server = wiremock::MockServer::start().await;
+    // 503 is chosen deliberately: the GET retry loop in `client.rs::get`
+    // emits a `tracing::warn!` for every retry attempt, so this exercise
+    // proves instrumentation actually runs through the buffer. The body
+    // carries fixture secrets that must never appear in any traced event.
     wiremock::Mock::given(wiremock::matchers::method("GET"))
         .and(wiremock::matchers::path("/api/v2/admin/users/current"))
         .respond_with(
-            wiremock::ResponseTemplate::new(422)
+            wiremock::ResponseTemplate::new(503)
                 .set_body_json(serde_json::json!({"errors": {"email": EMAIL, "body": BODY}})),
         )
-        .expect(1)
+        .expect(1..)
         .mount(&server)
         .await;
 
@@ -287,10 +291,15 @@ async fn tracing_never_contains_upstream_bodies_or_token() {
         uservoice_client::AccessToken::parse(TOKEN.to_owned()).expect("token"),
     )
     .expect("client");
-    let _ = client.current_user().await.expect_err("fixture 422");
+    let _ = client.current_user().await.expect_err("fixture 503");
 
-    let rendered =
-        String::from_utf8(buffer.0.lock().expect("buffer lock").clone()).expect("UTF-8 logs");
+    let captured = buffer.0.lock().expect("buffer lock").clone();
+    assert!(
+        !captured.is_empty(),
+        "the GET retry path must emit at least one tracing event, otherwise \
+         the no-leak assertion below would be vacuously true"
+    );
+    let rendered = String::from_utf8(captured).expect("UTF-8 logs");
     for forbidden in [TOKEN, EMAIL, BODY] {
         assert!(!rendered.contains(forbidden), "tracing leaked fixture data");
     }

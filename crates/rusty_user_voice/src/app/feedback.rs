@@ -138,13 +138,7 @@ impl<G: UserVoiceApi> App<G> {
                 ledger
                     .complete(&idempotency_key, idempotency_fingerprint, result.clone())
                     .await?;
-                let mut envelope = mutation_envelope(result);
-                envelope.status = OutcomeStatus::Partial;
-                envelope.guidance = Some(
-                    "Do not retry with a new key. Refresh the idea context and inspect completed operations."
-                        .to_owned(),
-                );
-                return Ok(envelope);
+                return Ok(mutation_envelope(result));
             }
         }
         let result = MutationResult {
