@@ -1,9 +1,12 @@
 use anyhow::Context;
 use clap::Parser;
-use rusty_user_voice::{CheckpointStore, Cli, Settings, bootstrap::build_app, cli_runner::run_cli};
+use rusty_user_voice::{
+    CheckpointStore, Cli, Settings, bootstrap::build_app, cli_runner::run_cli, init_tracing,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    init_tracing().ok();
     let cli = Cli::parse();
     let settings = Settings::from_sources(
         cli.base_url.as_deref(),

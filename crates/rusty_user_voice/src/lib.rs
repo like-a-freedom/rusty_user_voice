@@ -27,3 +27,26 @@ pub use ledger::{DiskChangeLedger, FixedClock, PreviewKind, PreviewRecord};
 pub use mcp::UserVoiceMcpServer;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Initialises the process-wide `tracing_subscriber::fmt` layer exactly once,
+/// routing logging to stderr (so stdout stays protocol-safe for both the MCP
+/// and CLI binaries) and reading the `RUST_LOG` env filter when present.
+///
+/// Idempotent — safe to call from both `main` and tests; subsequent calls are
+/// no-ops. Returns the original `Result` from `try_init` so callers can decide
+/// whether to log a warning when a subscriber was already installed by a
+/// test harness.
+pub fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    let mut result: Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> = Ok(());
+    INIT.call_once(|| {
+        result = tracing_subscriber::fmt()
+            .compact()
+            .with_ansi(false)
+            .with_target(false)
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
+            .try_init();
+    });
+    result
+}
