@@ -17,6 +17,11 @@ pub async fn run_cli<G: UserVoiceApi>(
     output: &mut dyn Write,
 ) -> Result<(), AppError> {
     let mode = cli.output;
+    if mode == OutputMode::Ndjson && !matches!(&cli.command, Command::Ideas { .. }) {
+        return Err(AppError::Validation(
+            "--output ndjson is valid only for ideas collect".to_owned(),
+        ));
+    }
     match cli.command {
         Command::Workspace { include_catalog } => {
             let result = app

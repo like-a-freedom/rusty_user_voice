@@ -167,6 +167,16 @@ impl<G: UserVoiceApi> App<G> {
         &self,
         params: RecordFeedbackParams,
     ) -> Result<Envelope<FeedbackRecordResult>, AppError> {
+        if params.body.trim().is_empty() {
+            return Err(AppError::Validation(
+                "feedback body must not be empty".to_owned(),
+            ));
+        }
+        if params.idea_id.is_none() && params.user_id.is_none() && params.user_email.is_none() {
+            return Err(AppError::Validation(
+                "at least one of idea_id, user_id, or user_email is required".to_owned(),
+            ));
+        }
         let ledger = self
             .ledger
             .as_deref()

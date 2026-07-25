@@ -340,3 +340,46 @@ fn pagination() -> Pagination {
 fn json<T: DeserializeOwned>(value: serde_json::Value) -> T {
     serde_json::from_value(value).expect("valid deterministic fixture")
 }
+
+#[allow(dead_code)]
+pub async fn mount_workspace_routes(server: &wiremock::MockServer) {
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{header, method, path},
+    };
+
+    for (route, body) in [
+        (
+            "/api/v2/admin/users/current",
+            serde_json::json!({"users": [{
+                "id": 7,
+                "name": "Fixture PM",
+                "email_address": "pm@example.invalid"
+            }]}),
+        ),
+        (
+            "/api/v2/admin/forums",
+            serde_json::json!({"forums": [{"id": 11, "name": "Product Ideas", "is_public": false}]}),
+        ),
+        (
+            "/api/v2/admin/categories",
+            serde_json::json!({"categories": [{"id": 12, "name": "Reporting", "links": {"forum": 11}}]}),
+        ),
+        (
+            "/api/v2/admin/statuses",
+            serde_json::json!({"statuses": [{"id": 13, "name": "Planned", "is_open": true}]}),
+        ),
+        (
+            "/api/v2/admin/labels",
+            serde_json::json!({"labels": [{"id": 14, "name": "export"}]}),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .and(header("authorization", "Bearer fixture-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+}

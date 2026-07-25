@@ -20,8 +20,12 @@ pub struct Cli {
     pub base_url: Option<String>,
     #[arg(long, env = "USERVOICE_STATE_DIR")]
     pub state_dir: Option<PathBuf>,
-    #[arg(long, env = "USERVOICE_MAX_IN_FLIGHT")]
-    pub max_in_flight: Option<usize>,
+    #[arg(
+        long,
+        env = "USERVOICE_MAX_IN_FLIGHT",
+        value_parser = clap::value_parser!(u32).range(1..=8),
+    )]
+    pub max_in_flight: Option<u32>,
     #[arg(long, value_enum, default_value = "human")]
     pub output: OutputMode,
     #[command(subcommand)]

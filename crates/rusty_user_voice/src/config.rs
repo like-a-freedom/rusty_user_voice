@@ -16,7 +16,7 @@ impl Settings {
     pub fn from_sources(
         base_url_override: Option<&str>,
         state_dir_override: Option<PathBuf>,
-        max_in_flight_override: Option<usize>,
+        max_in_flight_override: Option<u32>,
     ) -> Result<Self, AppError> {
         let base_url = base_url_override
             .map(str::to_owned)
@@ -40,7 +40,7 @@ impl Settings {
         base_url: &str,
         api_key: &str,
         state_dir: Option<PathBuf>,
-        max_in_flight: Option<usize>,
+        max_in_flight: Option<u32>,
     ) -> Result<Self, AppError> {
         let state_dir = state_dir
             .or_else(|| dirs::state_dir().map(|path| path.join("rusty-user-voice")))
@@ -55,7 +55,7 @@ impl Settings {
             endpoint: ApiEndpoint::parse(base_url)?,
             token: AccessToken::parse(api_key.to_owned())?,
             state_dir,
-            max_in_flight: max_in_flight.unwrap_or(2).clamp(1, 8),
+            max_in_flight: max_in_flight.unwrap_or(2).clamp(1, 8) as usize,
         })
     }
 }

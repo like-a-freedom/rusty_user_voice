@@ -131,7 +131,6 @@ impl ReqwestUserVoiceClient {
         Err(ClientError::HttpStatus { status: 503 })
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn retry_with_rate_limit_sleep<F, Fut, T>(mut op: F) -> Result<T, ClientError>
     where
         F: FnMut() -> Fut,
@@ -242,7 +241,55 @@ impl ReqwestUserVoiceClient {
 
         for _ in 0..Self::MAX_CONTEXT_PAGES {
             let query = Self::idea_filter(idea_id, per_page, continuation.as_ref())?;
-            let response: ApiResponse<R> = self.get(path, &query).await?;
+            let path_owned = path.to_owned();
+            let http = self.http.clone();
+            let endpoint = self.endpoint.clone();
+            let token = self.token.clone();
+            let response: ApiResponse<R> = Self::retry_with_rate_limit_sleep(|| {
+                let query = query.clone();
+                let path_owned = path_owned.clone();
+                let http = http.clone();
+                let endpoint = endpoint.clone();
+                let token = token.clone();
+                async move {
+                    let url = endpoint.admin_url(&path_owned)?;
+                    let resp = http
+                        .get(url)
+                        .bearer_auth(token.expose())
+                        .query(&query)
+                        .send()
+                        .await
+                        .map_err(ClientError::Transport)?;
+                    // Decode inline to avoid needing &self
+                    let status = resp.status();
+                    let rl = RateLimit::from_headers(resp.headers());
+                    let cont = continuation_from_link(resp.headers());
+                    match status {
+                        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                            return Err(ClientError::Authentication {
+                                status: status.as_u16(),
+                            });
+                        }
+                        StatusCode::NOT_FOUND => return Err(ClientError::NotFound),
+                        StatusCode::TOO_MANY_REQUESTS => {
+                            return Err(ClientError::RateLimited { rate_limit: rl });
+                        }
+                        _ if !status.is_success() => {
+                            return Err(ClientError::HttpStatus {
+                                status: status.as_u16(),
+                            });
+                        }
+                        _ => {}
+                    }
+                    let data = resp.json::<R>().await.map_err(ClientError::Decode)?;
+                    Ok(ApiResponse {
+                        data,
+                        rate_limit: rl,
+                        continuation: cont,
+                    })
+                }
+            })
+            .await?;
             let (mut page_items, upstream) = extract(response.data);
             let pagination = Pagination::from_upstream(upstream, response.continuation);
             total_records = pagination.total_records.or(total_records);
