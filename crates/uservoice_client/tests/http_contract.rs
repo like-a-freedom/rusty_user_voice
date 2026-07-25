@@ -9,6 +9,51 @@ use wiremock::{
 };
 
 #[tokio::test]
+async fn get_retries_one_transient_503_but_write_does_not_retry() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let server = MockServer::start().await;
+    let get_attempts = Arc::new(AtomicUsize::new(0));
+    let responder_attempts = Arc::clone(&get_attempts);
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/users/current"))
+        .respond_with(move |_: &wiremock::Request| {
+            if responder_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                ResponseTemplate::new(503)
+            } else {
+                ResponseTemplate::new(200).set_body_raw(
+                    include_str!("fixtures/current_user.json"),
+                    "application/json",
+                )
+            }
+        })
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/admin/notes"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = fixture_client(&server);
+    client
+        .current_user()
+        .await
+        .expect("eventual 200 after one 503");
+    assert_eq!(get_attempts.load(Ordering::SeqCst), 2);
+    assert!(
+        client
+            .create_note(IdeaId::new(101), "one write only".to_owned())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn current_user_sends_bearer_auth_and_parses_rate_limit() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -188,4 +233,65 @@ async fn context_collection_follows_next_link_until_every_record_is_loaded() {
         [201, 202]
     );
     assert!(page.pagination.next.is_none());
+}
+
+#[derive(Clone, Default)]
+struct SharedBuffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+struct BufferWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for BufferWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("buffer lock").extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SharedBuffer {
+    type Writer = BufferWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        BufferWriter(std::sync::Arc::clone(&self.0))
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn tracing_never_contains_upstream_bodies_or_token() {
+    const TOKEN: &str = "fixture-secret-do-not-log";
+    const EMAIL: &str = "private-person@example.invalid";
+    const BODY: &str = "private feedback body";
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/api/v2/admin/users/current"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(422)
+                .set_body_json(serde_json::json!({"errors": {"email": EMAIL, "body": BODY}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let buffer = SharedBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(buffer.clone())
+        .finish();
+    let dispatch = tracing::Dispatch::new(subscriber);
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let client = uservoice_client::ReqwestUserVoiceClient::new(
+        uservoice_client::ApiEndpoint::parse(&server.uri()).expect("endpoint"),
+        uservoice_client::AccessToken::parse(TOKEN.to_owned()).expect("token"),
+    )
+    .expect("client");
+    let _ = client.current_user().await.expect_err("fixture 422");
+
+    let rendered =
+        String::from_utf8(buffer.0.lock().expect("buffer lock").clone()).expect("UTF-8 logs");
+    for forbidden in [TOKEN, EMAIL, BODY] {
+        assert!(!rendered.contains(forbidden), "tracing leaked fixture data");
+    }
 }

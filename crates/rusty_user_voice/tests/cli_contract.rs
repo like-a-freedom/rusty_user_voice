@@ -83,6 +83,59 @@ impl Write for FailOnFlush {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn errors_never_emit_token_email_or_feedback_body() {
+    const TOKEN: &str = "fixture-secret-do-not-log";
+    const EMAIL: &str = "private-person@example.invalid";
+    const BODY: &str = "private feedback body content";
+
+    for (status, response_body) in [
+        (401, format!(r#"{{"errors":{{"error":"{TOKEN}"}}}}"#)),
+        (422, format!(r#"{{"errors":{{"email":"{EMAIL}"}}}}"#)),
+        (429, format!(r#"{{"errors":{{"body":"{BODY}"}}}}"#)),
+        (200, format!("{{not-json:{EMAIL}:{BODY}:{TOKEN}}}")),
+    ] {
+        let server = wiremock::MockServer::start().await;
+        let mut template =
+            wiremock::ResponseTemplate::new(status).set_body_raw(response_body, "application/json");
+        if status == 429 {
+            template = template
+                .insert_header("X-Rate-Limit-Limit", "60")
+                .insert_header("X-Rate-Limit-Remaining", "0")
+                .insert_header("X-Rate-Limit-Reset", "4102444800")
+                .insert_header("Retry-After", "4102444800");
+        }
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/api/v2/admin/users/current"))
+            .respond_with(template)
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = tempfile::tempdir().expect("state");
+        let output = assert_cmd::Command::cargo_bin("uservoice-cli")
+            .expect("binary")
+            .env("USERVOICE_BASE_URL", server.uri())
+            .env("USERVOICE_API_KEY", TOKEN)
+            .env("USERVOICE_STATE_DIR", state.path())
+            .args(["--output", "json", "workspace"])
+            .output()
+            .expect("run CLI");
+
+        let rendered = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        for forbidden in [TOKEN, EMAIL, BODY] {
+            assert!(
+                !rendered.contains(forbidden),
+                "process output leaked fixture data ({status}, {forbidden:?}):\n{rendered}",
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn collect_commits_checkpoint_only_after_output_flush() {
     let directory = tempfile::tempdir().expect("state directory");
