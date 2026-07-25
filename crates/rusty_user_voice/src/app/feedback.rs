@@ -1,13 +1,13 @@
-use std::collections::BTreeMap;
-
 use uservoice_client::{CreateFeedbackRecordRequest, CreateStatusUpdateRequest, UserVoiceApi};
 
 use crate::{
-    App, Envelope, MutationMode, MutationResult, NextAction, OutcomeStatus,
-    PublishIdeaUpdateParams, RecordFeedbackParams,
+    App, Envelope, MutationMode, MutationResult, OutcomeStatus, PublishIdeaUpdateParams,
+    RecordFeedbackParams,
     error::AppError,
     ledger::{PREVIEW_TTL, PreviewKind, fingerprint},
 };
+
+use super::mutation_envelope;
 
 impl<G: UserVoiceApi> App<G> {
     pub async fn publish_idea_update(
@@ -297,29 +297,4 @@ fn validate_publish_apply(
         .clone()
         .ok_or_else(|| AppError::Validation("apply requires idempotency_key".to_owned()))?;
     Ok((change_id, key))
-}
-
-fn mutation_envelope(result: MutationResult) -> Envelope<MutationResult> {
-    let idea_id = result.idea_id;
-    let partial = result
-        .applied_operations
-        .iter()
-        .any(|op| op.outcome.starts_with("failed:"));
-    Envelope {
-        status: if partial {
-            OutcomeStatus::Partial
-        } else {
-            OutcomeStatus::Ok
-        },
-        data: result,
-        next_actions: vec![NextAction {
-            tool: "uservoice_get_idea_context".to_owned(),
-            reason: "Refresh the idea after apply.".to_owned(),
-            idea_id: Some(idea_id),
-            arguments: BTreeMap::from([("idea_id".to_owned(), serde_json::json!(idea_id))]),
-        }],
-        guidance: None,
-        pagination: None,
-        rate_limit: None,
-    }
 }

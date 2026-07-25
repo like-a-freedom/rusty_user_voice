@@ -1,3 +1,9 @@
+#![cfg(feature = "live-smoke")]
+
+//! Live smoke test gated behind the `live-smoke` Cargo feature so the public
+//! `App::api_for_smoke()` seam is only reachable when tests are running
+//! against real UserVoice credentials.
+
 use uservoice_client::UserVoiceApi;
 
 #[tokio::test]

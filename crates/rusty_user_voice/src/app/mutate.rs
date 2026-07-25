@@ -1,12 +1,13 @@
 use crate::{
-    App, AppliedOperation, Envelope, FieldChange, MutationMode, MutationResult, NextAction,
-    OutcomeStatus, PreviewKind, PreviewRecord, UpdateIdeaParams,
+    App, AppliedOperation, Envelope, FieldChange, MutationMode, MutationResult, OutcomeStatus,
+    PreviewKind, PreviewRecord, UpdateIdeaParams,
     error::AppError,
     ledger::{Claim, PREVIEW_TTL, fingerprint},
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
 use uservoice_client::{UpdateSuggestionLinks, UpdateSuggestionRequest, UserVoiceApi};
+
+use super::mutation_envelope;
 
 #[derive(Serialize)]
 struct UpdateIntent<'a> {
@@ -391,34 +392,4 @@ fn field_changes(
         });
     }
     changes
-}
-
-fn mutation_envelope(result: MutationResult) -> Envelope<MutationResult> {
-    let idea_id = result.idea_id;
-    let partial = result
-        .applied_operations
-        .iter()
-        .any(|operation| operation.outcome.starts_with("failed:"));
-    let next = NextAction {
-        tool: "uservoice_get_idea_context".to_owned(),
-        reason: "Refresh the idea after apply, or review the preview before apply.".to_owned(),
-        idea_id: Some(idea_id),
-        arguments: BTreeMap::from([("idea_id".to_owned(), serde_json::json!(idea_id))]),
-    };
-    let guidance = partial.then(|| {
-        "Do not retry with a new key. Refresh the idea context and inspect completed operations."
-            .to_owned()
-    });
-    Envelope {
-        status: if partial {
-            OutcomeStatus::Partial
-        } else {
-            OutcomeStatus::Ok
-        },
-        data: result,
-        next_actions: vec![next],
-        guidance,
-        pagination: None,
-        rate_limit: None,
-    }
 }

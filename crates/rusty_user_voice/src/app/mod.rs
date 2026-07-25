@@ -3,11 +3,14 @@ pub mod feedback;
 mod mutate;
 mod read;
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{collections::BTreeMap, num::NonZeroUsize, sync::Arc};
 
 use uservoice_client::UserVoiceApi;
 
-use crate::ledger::{Clock, DiskChangeLedger, SystemClock};
+use crate::{
+    contracts::{Envelope, MutationResult, NextAction, OutcomeStatus},
+    ledger::{Clock, DiskChangeLedger, SystemClock},
+};
 
 #[derive(Clone)]
 pub struct App<G: UserVoiceApi> {
@@ -47,5 +50,39 @@ impl<G: UserVoiceApi> App<G> {
     #[must_use]
     pub fn api_for_smoke(&self) -> &G {
         &self.api
+    }
+}
+
+/// Shared envelope builder for the apply-step of every mutation. Inspects the
+/// applied-operations ledger to flip the envelope to `Partial` when any op
+/// failed, and points the agent at `uservoice_get_idea_context` so the next
+/// call refreshes the affected idea.
+pub(super) fn mutation_envelope(result: MutationResult) -> Envelope<MutationResult> {
+    let idea_id = result.idea_id;
+    let partial = result
+        .applied_operations
+        .iter()
+        .any(|operation| operation.outcome.starts_with("failed:"));
+    let guidance = partial.then(|| {
+        "Do not retry with a new key. Refresh the idea context and inspect completed operations."
+            .to_owned()
+    });
+    let next_actions = vec![NextAction {
+        tool: "uservoice_get_idea_context".to_owned(),
+        reason: "Refresh the idea after apply, or review the preview before apply.".to_owned(),
+        idea_id: Some(idea_id),
+        arguments: BTreeMap::from([("idea_id".to_owned(), serde_json::json!(idea_id))]),
+    }];
+    Envelope {
+        status: if partial {
+            OutcomeStatus::Partial
+        } else {
+            OutcomeStatus::Ok
+        },
+        data: result,
+        next_actions,
+        guidance,
+        pagination: None,
+        rate_limit: None,
     }
 }
