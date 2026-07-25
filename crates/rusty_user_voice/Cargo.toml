@@ -12,6 +12,12 @@ path = "src/main.rs"
 name = "uservoice-cli"
 path = "src/bin/cli.rs"
 
+[features]
+# When enabled, exposes `App::api_for_smoke` so live smoke tests can drive
+# the adapter directly without going through domain envelopes.
+default = []
+live-smoke = []
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true

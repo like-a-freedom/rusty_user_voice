@@ -1,0 +1,25 @@
+[
+  {
+    "label": "cargo: clean → update → install rusty_user_voice",
+    "command": "bash",
+    "args": [
+      "-c",
+      "set -e && cargo clean && cargo update && cargo install --path crates/rusty_user_voice",
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+  },
+  {
+    "label": "cargo: install rusty_user_voice (fast)",
+    "command": "cargo",
+    "args": ["install", "--path", "crates/rusty_user_voice"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
+  },
+]

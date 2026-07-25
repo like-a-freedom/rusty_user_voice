@@ -38,4 +38,14 @@ impl<G: UserVoiceApi> App<G> {
         self.clock = clock;
         self
     }
+
+    /// Hands the underlying implementation back to live smoke tests so they
+    /// can exercise raw adapter calls without going through domain envelopes
+    /// (and without exposing the seam in production builds). Only compiled
+    /// in tests and when the `live-smoke` Cargo feature is on.
+    #[cfg(any(test, feature = "live-smoke"))]
+    #[must_use]
+    pub fn api_for_smoke(&self) -> &G {
+        &self.api
+    }
 }
