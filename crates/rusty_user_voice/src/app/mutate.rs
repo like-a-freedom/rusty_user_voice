@@ -330,7 +330,7 @@ fn field_changes(
     if let Some(value) = &params.body {
         changes.push(FieldChange {
             field: "body".to_owned(),
-            before: Some(current.body.clone()),
+            before: current.body.clone(),
             after: Some(value.clone()),
         });
     }

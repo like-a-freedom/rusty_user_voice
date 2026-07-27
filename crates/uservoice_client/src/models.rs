@@ -9,6 +9,21 @@ use crate::{
     CategoryId, ForumId, IdeaId, LabelId, Pagination, StatusId, UpstreamPagination, UserId,
 };
 
+/// Deserialises a JSON array-or-null into `Vec<T>`. Null and missing both produce
+/// an empty vec. The UserVoice API returns `null` for suggestion labels when an
+/// idea has no labels attached, which serde's `#[serde(default)]` does not handle
+/// (default only covers missing keys, not explicit null values).
+fn deserialize_null_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    match Option::<Vec<T>>::deserialize(deserializer)? {
+        Some(v) => Ok(v),
+        None => Ok(Vec::new()),
+    }
+}
+
 /// Authenticated principal returned by `GET /admin/users/current`.
 ///
 /// Unknown fields are preserved in `extra` (via `#[serde(flatten)]`) so schema
@@ -37,7 +52,7 @@ pub struct SuggestionLinks {
     pub forum: Option<ForumId>,
     pub category: Option<CategoryId>,
     pub status: Option<StatusId>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_vec")]
     pub labels: Vec<LabelId>,
     pub created_by: Option<UserId>,
     pub assigned_owner: Option<UserId>,
@@ -49,7 +64,8 @@ pub struct SuggestionLinks {
 pub struct Suggestion {
     pub id: IdeaId,
     pub title: String,
-    pub body: String,
+    #[serde(default)]
+    pub body: Option<String>,
     pub body_mime_type: Option<String>,
     pub channel: Option<String>,
     pub state: String,
@@ -71,6 +87,7 @@ pub struct Suggestion {
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SuggestionsResponse {
+    #[serde(default)]
     pub suggestions: Vec<Suggestion>,
     #[serde(default)]
     pub pagination: UpstreamPagination,
