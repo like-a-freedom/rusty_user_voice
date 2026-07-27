@@ -37,7 +37,7 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
         && !search_all_flag
     {
         return Err(AppError::Validation(
-            "--output ndjson is valid only for ideas collect".to_owned(),
+            "--output ndjson is valid only for ideas collect and ideas search --all".to_owned(),
         ));
     }
     if search_all_flag && mode == OutputMode::Json {
@@ -262,6 +262,8 @@ fn write_result<T: Serialize>(
     Ok(())
 }
 
+const MAX_AUTO_PAGES: u64 = 1000;
+
 async fn auto_paginate_search<G: UserVoiceApi>(
     app: &App<G>,
     args: &crate::cli::SearchArgs,
@@ -270,7 +272,18 @@ async fn auto_paginate_search<G: UserVoiceApi>(
 ) -> Result<(), AppError> {
     let mut continuation = cli::continuation(args.cursor.clone(), args.page);
     let mut total = 0u64;
+    let mut pages = 0u64;
     loop {
+        pages += 1;
+        if pages > MAX_AUTO_PAGES {
+            writeln!(
+                stderr,
+                "fail: collected {total} ideas across {MAX_AUTO_PAGES} pages, safety ceiling reached"
+            )?;
+            return Err(AppError::Validation(format!(
+                "--all safety ceiling of {MAX_AUTO_PAGES} pages reached"
+            )));
+        }
         let result = app
             .search_ideas(SearchIdeasParams {
                 query: args.query.clone(),

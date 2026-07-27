@@ -945,3 +945,42 @@ async fn search_all_streams_partial_on_failure() {
         "stderr should suggest resume: {stderr}"
     );
 }
+
+#[tokio::test]
+async fn search_all_explicit_ndjson_output_works() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(TwoPageApi), 2);
+    let mut output = Vec::new();
+    let mut stderr_buf = Vec::new();
+
+    let result = run_cli_with_stderr(
+        &app,
+        &checkpoints,
+        Cli::try_parse_from([
+            "uservoice-cli",
+            "--output",
+            "ndjson",
+            "ideas",
+            "search",
+            "--query",
+            "test",
+            "--all",
+        ])
+        .expect("CLI"),
+        &mut output,
+        &mut stderr_buf,
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "--output ndjson --all should succeed: {:?}",
+        result.err()
+    );
+
+    let lines: Vec<&[u8]> = output
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(lines.len(), 2, "should have 2 NDJSON lines");
+}

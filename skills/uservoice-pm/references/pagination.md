@@ -45,7 +45,7 @@ To drain every page in one stream, use the CLI with `--all`; the MCP surface ret
 ```bash
 uservoice-cli ideas search --query osmp --forum-ids 11 --all
 # stdout: NDJSON stream of all matching ideas
-# stderr: next: cursor-abc123\n (after each page)
+# stderr: next: cursor-abc123 (after each page)
 ```
 
 ## Example: CLI `--cursor` resume
