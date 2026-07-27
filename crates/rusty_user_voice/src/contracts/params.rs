@@ -90,6 +90,88 @@ const fn default_collect_page() -> u32 {
     20
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn change_id_new_is_not_nil() {
+        let id = ChangeId::new();
+        assert!(!id.as_uuid().is_nil());
+    }
+
+    #[test]
+    fn change_id_from_uuid_roundtrips() {
+        let uuid = uuid::Uuid::new_v4();
+        let id = ChangeId::from_uuid(uuid);
+        assert_eq!(id.as_uuid(), uuid);
+    }
+
+    #[test]
+    fn update_idea_params_preview_sets_mode() {
+        let params = UpdateIdeaParams::preview(IdeaId::new(1), Some("title".to_owned()), vec![]);
+        assert_eq!(params.mode, MutationMode::Preview);
+        assert_eq!(params.idea_id, IdeaId::new(1));
+        assert!(params.change_id.is_none());
+    }
+
+    #[test]
+    fn update_idea_params_apply_from_preview_copies_fields() {
+        let preview = UpdateIdeaParams::preview(
+            IdeaId::new(42),
+            Some("title".to_owned()),
+            vec![LabelId::new(14)],
+        );
+        let change_id = ChangeId::new();
+        let apply = UpdateIdeaParams::apply_from_preview(&preview, change_id, "apply", "key-1");
+        assert_eq!(apply.mode, MutationMode::Apply);
+        assert_eq!(apply.idea_id, IdeaId::new(42));
+        assert_eq!(apply.title, Some("title".to_owned()));
+        assert_eq!(apply.add_label_ids, vec![LabelId::new(14)]);
+        assert_eq!(apply.change_id, Some(change_id));
+        assert_eq!(apply.confirmation, Some("apply".to_owned()));
+        assert_eq!(apply.idempotency_key, Some("key-1".to_owned()));
+    }
+
+    #[test]
+    fn publish_idea_update_params_preview_sets_defaults() {
+        let params =
+            PublishIdeaUpdateParams::preview(IdeaId::new(1), StatusId::new(10), "shipped", false);
+        assert_eq!(params.mode, MutationMode::Preview);
+        assert!(!params.notify_supporters);
+        assert!(params.change_id.is_none());
+    }
+
+    #[test]
+    fn publish_idea_update_params_apply_from_preview_copies() {
+        let change_id = ChangeId::new();
+        let preview_result = crate::MutationResult {
+            mode: MutationMode::Preview,
+            change_id: Some(change_id),
+            idea_id: IdeaId::new(1),
+            expected_updated_at: chrono::Utc::now(),
+            expires_at: None,
+            changes: Vec::new(),
+            applied_operations: Vec::new(),
+            feedback_record_id: None,
+        };
+        let apply = PublishIdeaUpdateParams::apply_from_preview(
+            &preview_result,
+            StatusId::new(20),
+            "released",
+            true,
+            "apply",
+            "key-1",
+        );
+        assert_eq!(apply.mode, MutationMode::Apply);
+        assert_eq!(apply.idea_id, IdeaId::new(1));
+        assert_eq!(apply.status_id, StatusId::new(20));
+        assert_eq!(apply.message, "released");
+        assert!(apply.notify_supporters);
+        assert_eq!(apply.change_id, Some(change_id));
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MutationMode {

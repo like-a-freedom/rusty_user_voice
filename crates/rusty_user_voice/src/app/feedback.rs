@@ -292,3 +292,91 @@ fn validate_publish_apply(
         .ok_or_else(|| AppError::Validation("apply requires idempotency_key".to_owned()))?;
     Ok((change_id, key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PublishIdeaUpdateParams;
+    use uservoice_client::{IdeaId, StatusId};
+
+    fn preview_params() -> PublishIdeaUpdateParams {
+        PublishIdeaUpdateParams::preview(IdeaId::new(1), StatusId::new(10), "shipped", false)
+    }
+
+    #[test]
+    fn validate_publish_preview_rejects_change_id() {
+        let mut params = preview_params();
+        params.change_id = Some(crate::ChangeId::new());
+        assert!(validate_publish_preview(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_preview_rejects_confirmation() {
+        let mut params = preview_params();
+        params.confirmation = Some("apply".to_owned());
+        assert!(validate_publish_preview(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_preview_rejects_idempotency_key() {
+        let mut params = preview_params();
+        params.idempotency_key = Some("key".to_owned());
+        assert!(validate_publish_preview(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_preview_accepts_valid_params() {
+        assert!(validate_publish_preview(&preview_params()).is_ok());
+    }
+
+    #[test]
+    fn validate_publish_apply_rejects_missing_confirmation() {
+        let mut params = preview_params();
+        params.mode = MutationMode::Apply;
+        params.change_id = Some(crate::ChangeId::new());
+        params.idempotency_key = Some("key".to_owned());
+        assert!(validate_publish_apply(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_apply_rejects_wrong_confirmation() {
+        let mut params = preview_params();
+        params.mode = MutationMode::Apply;
+        params.change_id = Some(crate::ChangeId::new());
+        params.confirmation = Some("wrong".to_owned());
+        params.idempotency_key = Some("key".to_owned());
+        assert!(validate_publish_apply(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_apply_rejects_missing_change_id() {
+        let mut params = preview_params();
+        params.mode = MutationMode::Apply;
+        params.confirmation = Some("apply".to_owned());
+        params.idempotency_key = Some("key".to_owned());
+        assert!(validate_publish_apply(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_apply_rejects_missing_idempotency_key() {
+        let mut params = preview_params();
+        params.mode = MutationMode::Apply;
+        params.change_id = Some(crate::ChangeId::new());
+        params.confirmation = Some("apply".to_owned());
+        assert!(validate_publish_apply(&params).is_err());
+    }
+
+    #[test]
+    fn validate_publish_apply_accepts_valid_params() {
+        let mut params = preview_params();
+        params.mode = MutationMode::Apply;
+        params.change_id = Some(crate::ChangeId::new());
+        params.confirmation = Some("apply".to_owned());
+        params.idempotency_key = Some("key".to_owned());
+        let result = validate_publish_apply(&params);
+        assert!(result.is_ok());
+        let (change_id, key) = result.unwrap();
+        assert_eq!(key, "key");
+        assert!(!change_id.as_uuid().is_nil());
+    }
+}
