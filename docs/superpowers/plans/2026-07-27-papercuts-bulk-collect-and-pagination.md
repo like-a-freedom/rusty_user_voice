@@ -6,11 +6,11 @@
 
 ## Problem
 
-Live end-to-end testing against `kaspersky.uservoice.com` surfaced three rough edges that together make the CLI hard for an AI agent to use correctly:
+Live end-to-end testing against a production UserVoice tenant surfaced three rough edges that together make the CLI hard for an AI agent to use correctly:
 
 1. **`ideas collect` has no `--forum-ids` / `--query` / taxonomy filters.** Bulk extraction by date range is the only working pattern, and it requires a local post-filter for any forum-specific use case.
 2. **An agent did not realise `ideas search` supports pagination.** `--cursor` and `--page` exist on `SearchArgs`, and `envelope.pagination` is populated, but neither the human output nor the skill pointed the agent at them.
-3. **Text search returns noise.** `q=osmp` also matches `KasperskyOS`. This is an upstream UserVoice behaviour; we cannot fix it. We can teach the agent to prefer `forum_ids` for forum-specific work.
+3. **Text search returns noise.** `q=osmp` also matches other product names. This is an upstream UserVoice full-text behaviour; we cannot fix it. We can teach the agent to prefer `forum_ids` for forum-specific work.
 
 ## Decisions (no ADR — execution-level, all single-commit reversible)
 
