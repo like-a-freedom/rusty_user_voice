@@ -14,9 +14,11 @@ Note the available forums, categories, statuses, and labels. These IDs are used 
 
 ### 2. Search for recent ideas
 
+Use `uservoice_search_ideas` only after you have `forum_ids` from `workspace_context`; text search alone returns noisy matches. For bulk extraction, prefer `uservoice_collect_ideas --forum-ids <id>` over text search.
+
 ```
 uservoice_search_ideas
-  query: <optional text filter>
+  forum_ids: [<forum ID from workspace_context>]
   updated_after: <start of triage window>
   updated_before: <end of triage window>
   status_ids: [<open status IDs>]
@@ -28,6 +30,7 @@ For bulk collection across many pages:
 ```
 uservoice_collect_ideas
   updated_after: <start>
+  forum_ids: [<forum ID>]
   detail_level: summary
   per_page: 20
 ```

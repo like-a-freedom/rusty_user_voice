@@ -30,6 +30,8 @@ set +a
 
 ## CLI workflows
 
+For pagination, cursors, and the `--all` auto-pagination flag, see [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md).
+
 Discover taxonomy and search:
 
 ```bash
