@@ -12,12 +12,30 @@ Local UserVoice Admin API MCP stdio server and CLI for an AI product-manager wor
 
 ## Configuration
 
-| Variable | Required | Meaning |
-|---|---:|---|
-| `USERVOICE_BASE_URL` | yes | `https://<tenant>.uservoice.com` |
-| `USERVOICE_API_KEY` | yes | UI-generated bearer access token |
-| `USERVOICE_STATE_DIR` | no | Checkpoint and mutation-ledger directory |
-| `USERVOICE_MAX_IN_FLIGHT` | no | Concurrent reads, clamped to 1-8; default 2 |
+Settings are resolved in priority order: **CLI flags > environment variables > config.yaml > defaults**.
+
+| Field | CLI flag | Env var | Config key | Default |
+|---|---|---|---|---|
+| Base URL | `--base-url` | `USERVOICE_BASE_URL` | `uservoice_base_url` | (required) |
+| API token | — | `USERVOICE_API_KEY` | `uservoice_api_key` | (required) |
+| State dir | `--state-dir` | `USERVOICE_STATE_DIR` | `uservoice_state_dir` | platform app data |
+| Max in-flight | `--max-in-flight` | `USERVOICE_MAX_IN_FLIGHT` | `uservoice_max_in_flight` | 2 (1–8) |
+| Default output | — | `USERVOICE_DEFAULT_OUTPUT` | `default_output` | human |
+| CA certificate | — | — | `ca_cert` | (none) |
+| Log level | — | `USERVOICE_LOG_LEVEL` | `log_level` | warn (RUST_LOG overrides) |
+
+### Config file
+
+Copy `config.example.yaml` to `config.yaml` next to the binary, or to
+`~/.config/rusty-user-voice/config.yaml`. The file contains secrets — it
+must not be committed to version control.
+
+```bash
+cp config.example.yaml config.yaml
+# edit config.yaml with your values
+```
+
+### Environment session
 
 For an explicit local session:
 

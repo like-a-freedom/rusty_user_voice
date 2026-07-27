@@ -36,15 +36,22 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// no-ops and return `Ok(())`. The first call's outcome (success or the
 /// `try_init` error if a global subscriber was already installed elsewhere)
 /// is reported back so the caller can decide whether to log a warning.
-pub fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn init_tracing(
+    log_level: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     static INIT: std::sync::Once = std::sync::Once::new();
     let mut result: Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> = Ok(());
     INIT.call_once(|| {
+        let filter = std::env::var("RUST_LOG")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| log_level.map(String::from))
+            .unwrap_or_else(|| "warn".to_owned());
         result = tracing_subscriber::fmt()
             .compact()
             .with_ansi(false)
             .with_target(false)
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_env_filter(filter)
             .with_writer(std::io::stderr)
             .try_init();
     });

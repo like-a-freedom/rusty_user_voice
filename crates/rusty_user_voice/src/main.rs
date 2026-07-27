@@ -4,9 +4,9 @@ use rusty_user_voice::{Settings, UserVoiceMcpServer, bootstrap::build_app, init_
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing().ok();
     let settings =
         Settings::from_sources(None, None, None).context("invalid UserVoice configuration")?;
+    init_tracing(settings.log_level.as_deref()).ok();
     let app = build_app(&settings).context("failed to construct UserVoice client")?;
     UserVoiceMcpServer::new(app)
         .serve(rmcp::transport::io::stdio())

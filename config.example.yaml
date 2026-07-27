@@ -1,0 +1,29 @@
+# uservoice-cli configuration
+# Copy this to config.yaml next to the binary or to ~/.config/rusty-user-voice/config.yaml
+# Priority: CLI flags > environment variables > config.yaml > defaults
+
+# Required: UserVoice API bearer token
+# Never commit config.yaml with a real token
+uservoice_api_key: ""
+
+# Required: UserVoice tenant base URL
+# Example: https://your-tenant.uservoice.com
+uservoice_base_url: ""
+
+# Optional: Local state directory for checkpoints and ledger
+# Default: platform-specific app data directory
+# uservoice_state_dir: ""
+
+# Optional: Max concurrent read requests (1-8)
+# uservoice_max_in_flight: 2
+
+# Optional: Default output mode when --output is not specified
+# Possible values: human, json, ndjson
+# default_output: human
+
+# Optional: Path to CA certificate (PEM or DER) for on-prem UserVoice
+# ca_cert: "/path/to/corporate-root-ca.pem"
+
+# Optional: Log level (RUST_LOG overrides this)
+# Possible values: error, warn, info, debug, trace
+# log_level: warn

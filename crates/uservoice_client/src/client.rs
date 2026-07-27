@@ -46,6 +46,18 @@ impl ReqwestUserVoiceClient {
         })
     }
 
+    pub fn from_http_client(
+        http: Client,
+        endpoint: ApiEndpoint,
+        token: AccessToken,
+    ) -> Result<Self, ClientError> {
+        Ok(Self {
+            http,
+            endpoint,
+            token,
+        })
+    }
+
     /// Decodes a reqwest response into an [`ApiResponse<T>`], mapping every
     /// documented UserVoice failure status to its typed [`ClientError`]
     /// variant and extracting rate-limit + continuation headers on success.
