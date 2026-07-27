@@ -17,18 +17,22 @@ impl<G: UserVoiceApi> App<G> {
                 "full-detail collection requires per_page <= 10".to_owned(),
             ));
         }
+        let sort = params
+            .sort
+            .clone()
+            .or_else(|| Some("updated_at".to_owned()));
         let page = self
             .api
             .search_suggestions(SearchSuggestionsRequest {
-                query: None,
+                query: params.query.clone(),
                 updated_after: Some(params.updated_after),
                 updated_before: params.updated_before,
-                forum_ids: Vec::new(),
-                category_ids: Vec::new(),
-                status_ids: Vec::new(),
-                label_ids: Vec::new(),
-                states: Vec::new(),
-                sort: Some("updated_at".to_owned()),
+                forum_ids: params.forum_ids.clone(),
+                category_ids: params.category_ids.clone(),
+                status_ids: params.status_ids.clone(),
+                label_ids: params.label_ids.clone(),
+                states: params.states.clone(),
+                sort,
                 per_page: params.per_page,
                 continuation: params.continuation,
             })
@@ -77,20 +81,59 @@ impl<G: UserVoiceApi> App<G> {
                     tool: "uservoice_collect_ideas".to_owned(),
                     reason: "Continue with the returned pagination value.".to_owned(),
                     idea_id: None,
-                    arguments: BTreeMap::from([
-                        (
-                            "updated_after".to_owned(),
-                            serde_json::json!(params.updated_after),
-                        ),
-                        (
-                            "updated_before".to_owned(),
-                            serde_json::json!(params.updated_before),
-                        ),
-                        (
-                            "continuation".to_owned(),
-                            serde_json::json!(&pagination.next),
-                        ),
-                    ]),
+                    arguments: {
+                        let mut args = BTreeMap::from([
+                            (
+                                "updated_after".to_owned(),
+                                serde_json::json!(params.updated_after),
+                            ),
+                            (
+                                "updated_before".to_owned(),
+                                serde_json::json!(params.updated_before),
+                            ),
+                            (
+                                "continuation".to_owned(),
+                                serde_json::json!(&pagination.next),
+                            ),
+                        ]);
+                        if let Some(ref q) = params.query {
+                            args.insert("query".to_owned(), serde_json::json!(q));
+                        }
+                        if !params.forum_ids.is_empty() {
+                            args.insert(
+                                "forum_ids".to_owned(),
+                                serde_json::json!(params.forum_ids),
+                            );
+                        }
+                        if !params.category_ids.is_empty() {
+                            args.insert(
+                                "category_ids".to_owned(),
+                                serde_json::json!(params.category_ids),
+                            );
+                        }
+                        if !params.status_ids.is_empty() {
+                            args.insert(
+                                "status_ids".to_owned(),
+                                serde_json::json!(params.status_ids),
+                            );
+                        }
+                        if !params.label_ids.is_empty() {
+                            args.insert(
+                                "label_ids".to_owned(),
+                                serde_json::json!(params.label_ids),
+                            );
+                        }
+                        if !params.states.is_empty() {
+                            args.insert(
+                                "states".to_owned(),
+                                serde_json::json!(params.states),
+                            );
+                        }
+                        if let Some(ref s) = params.sort {
+                            args.insert("sort".to_owned(), serde_json::json!(s));
+                        }
+                        args
+                    },
                 })
                 .into_iter()
                 .collect(),

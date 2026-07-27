@@ -115,6 +115,20 @@ pub struct CollectArgs {
     pub updated_after: DateTime<Utc>,
     #[arg(long)]
     pub updated_before: Option<DateTime<Utc>>,
+    #[arg(long)]
+    pub query: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub forum_ids: Vec<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub category_ids: Vec<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub status_ids: Vec<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub label_ids: Vec<i64>,
+    #[arg(long, value_delimiter = ',')]
+    pub states: Vec<String>,
+    #[arg(long)]
+    pub sort: Option<String>,
     #[arg(long, value_enum, default_value = "summary")]
     pub detail_level: CliDetailLevel,
     #[arg(

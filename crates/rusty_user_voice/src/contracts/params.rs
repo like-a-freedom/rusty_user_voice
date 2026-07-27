@@ -59,6 +59,18 @@ pub struct GetIdeaContextParams {
 pub struct CollectIdeasParams {
     pub updated_after: DateTime<Utc>,
     pub updated_before: Option<DateTime<Utc>>,
+    pub query: Option<String>,
+    #[serde(default)]
+    pub forum_ids: Vec<ForumId>,
+    #[serde(default)]
+    pub category_ids: Vec<CategoryId>,
+    #[serde(default)]
+    pub status_ids: Vec<StatusId>,
+    #[serde(default)]
+    pub label_ids: Vec<LabelId>,
+    #[serde(default)]
+    pub states: Vec<String>,
+    pub sort: Option<String>,
     #[serde(default)]
     pub detail_level: DetailLevel,
     #[serde(default = "default_collect_page")]

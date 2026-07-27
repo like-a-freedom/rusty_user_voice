@@ -53,6 +53,13 @@ async fn full_collection_rejects_an_agent_context_burst_over_ten_ideas() {
         .collect_ideas(CollectIdeasParams {
             updated_after: "2025-01-01T00:00:00Z".parse().expect("date"),
             updated_before: None,
+            query: None,
+            forum_ids: Vec::new(),
+            category_ids: Vec::new(),
+            status_ids: Vec::new(),
+            label_ids: Vec::new(),
+            states: Vec::new(),
+            sort: None,
             detail_level: DetailLevel::Full,
             per_page: 11,
             continuation: None,

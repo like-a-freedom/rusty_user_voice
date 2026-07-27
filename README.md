@@ -45,6 +45,11 @@ uservoice-cli --output ndjson ideas collect \
   --updated-after 2025-01-01T00:00:00Z \
   --updated-before 2026-07-24T00:00:00Z \
   --checkpoint-name weekly-triage
+
+uservoice-cli --output ndjson ideas collect \
+  --updated-after 2025-01-01T00:00:00Z \
+  --forum-ids 11 \
+  --query osmp
 ```
 
 Preview, inspect the returned diff and `change_id`, then apply:

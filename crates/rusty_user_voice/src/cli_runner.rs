@@ -101,6 +101,13 @@ pub async fn run_cli<G: UserVoiceApi>(
                     .collect_ideas(CollectIdeasParams {
                         updated_after: args.updated_after,
                         updated_before,
+                        query: args.query,
+                        forum_ids: cli::forum_ids(args.forum_ids),
+                        category_ids: cli::category_ids(args.category_ids),
+                        status_ids: cli::status_ids(args.status_ids),
+                        label_ids: cli::label_ids(args.label_ids),
+                        states: args.states,
+                        sort: args.sort,
                         detail_level: args.detail_level.into(),
                         per_page: args.per_page,
                         continuation,
