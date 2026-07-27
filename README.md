@@ -36,6 +36,7 @@ Discover taxonomy and search:
 uservoice-cli --output json workspace
 uservoice-cli --output json ideas search --query export --per-page 100
 uservoice-cli --output json ideas get 101 --detail-level full --include-supporters
+uservoice-cli ideas search --query export --all  # streams NDJSON, logs cursor hints to stderr
 ```
 
 Collect a stable time window. A named checkpoint resumes automatically:

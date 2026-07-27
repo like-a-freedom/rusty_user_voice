@@ -338,7 +338,7 @@ fn pagination() -> Pagination {
     }
 }
 
-fn json<T: DeserializeOwned>(value: serde_json::Value) -> T {
+pub(crate) fn json<T: DeserializeOwned>(value: serde_json::Value) -> T {
     serde_json::from_value(value).expect("valid deterministic fixture")
 }
 

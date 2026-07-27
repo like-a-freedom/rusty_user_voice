@@ -31,7 +31,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
     #[tool(
         name = "uservoice_workspace_context",
-        description = "Verify UserVoice access and load the current admin plus forums, categories, statuses, and labels. Use first when taxonomy or connectivity is unknown. Do NOT use this tool to find individual ideas — call search_ideas instead. Next use search_ideas.",
+        description = "Verify UserVoice access and load the current admin plus forums, categories, statuses, and labels. Use first when taxonomy or connectivity is unknown. Do NOT use this tool to find individual ideas — call search_ideas instead. Next use search_ideas. After this call, inspect envelope.pagination.has_more and envelope.next_actions for the next step. To drain every page in one stream, use the CLI with --all; the MCP surface returns one page per call by design.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -52,7 +52,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_search_ideas",
-        description = "Find UserVoice ideas by text, update window, taxonomy IDs, state, and sort. Returns compact idea summaries and continuation. Use get_idea_context with a returned idea_id before deciding or writing. Do NOT use this tool to fetch the full discussion or notes on one idea — use get_idea_context instead.",
+        description = "Find UserVoice ideas by text, update window, taxonomy IDs, state, and sort. Returns compact idea summaries and continuation. Use get_idea_context with a returned idea_id before deciding or writing. Do NOT use this tool to fetch the full discussion or notes on one idea — use get_idea_context instead. After this call, inspect envelope.pagination.has_more and envelope.next_actions for the next step. To drain every page in one stream, use the CLI with --all; the MCP surface returns one page per call by design.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -73,7 +73,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_get_idea_context",
-        description = "Load one idea by stable idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial result names every unavailable section and remains usable. Do NOT use this tool to discover ideas without a known idea_id — call search_ideas first.",
+        description = "Load one idea by stable idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial result names every unavailable section and remains usable. Do NOT use this tool to discover ideas without a known idea_id — call search_ideas first. After this call, inspect envelope.pagination.has_more and envelope.next_actions for the next step. To drain every page in one stream, use the CLI with --all; the MCP surface returns one page per call by design.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -94,7 +94,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_collect_ideas",
-        description = "Collect one resumable page of ideas updated in a bounded time window. Prefer cursor continuation. Full detail is capped at 10 ideas per page; summary allows 100. The caller must durably consume the page before passing the returned continuation; the MCP tool itself does not persist checkpoints. Repeat until continuation is absent. Do NOT use this tool to look up one known idea — use get_idea_context instead.",
+        description = "Collect one resumable page of ideas updated in a bounded time window. Prefer cursor continuation. Full detail is capped at 10 ideas per page; summary allows 100. The caller must durably consume the page before passing the returned continuation; the MCP tool itself does not persist checkpoints. Repeat until continuation is absent. Do NOT use this tool to look up one known idea — use get_idea_context instead. After this call, inspect envelope.pagination.has_more and envelope.next_actions for the next step. To drain every page in one stream, use the CLI with --all; the MCP surface returns one page per call by design.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,

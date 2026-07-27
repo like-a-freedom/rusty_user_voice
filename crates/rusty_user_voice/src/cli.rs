@@ -92,6 +92,8 @@ pub struct SearchArgs {
     pub cursor: Option<String>,
     #[arg(long, conflicts_with = "cursor")]
     pub page: Option<u32>,
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Debug, Args)]

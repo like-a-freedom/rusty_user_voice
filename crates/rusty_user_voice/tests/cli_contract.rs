@@ -7,7 +7,10 @@ use std::{
 
 use clap::Parser;
 use predicates::prelude::PredicateBooleanExt;
-use rusty_user_voice::{App, CheckpointStore, Cli, SearchIdeasParams, cli_runner::run_cli};
+use rusty_user_voice::{
+    App, CheckpointStore, Cli, SearchIdeasParams,
+    cli_runner::{run_cli, run_cli_with_stderr},
+};
 use uservoice_client::{ApiResponse, UserVoiceApi};
 
 #[derive(Clone)]
@@ -447,4 +450,498 @@ async fn collect_forwards_taxonomy_filters_to_api() {
     assert_eq!(params.label_ids, vec![uservoice_client::LabelId::new(15)]);
     assert_eq!(params.states, vec!["open"]);
     assert_eq!(params.sort.as_deref(), Some("votes"));
+}
+
+fn test_response<T>(data: T) -> ApiResponse<T> {
+    ApiResponse {
+        data,
+        rate_limit: None,
+        continuation: None,
+    }
+}
+
+// -- Commit 2: --all auto-pagination helpers and tests --
+
+#[derive(Clone)]
+struct TwoPageApi;
+
+impl UserVoiceApi for TwoPageApi {
+    async fn search_suggestions(
+        &self,
+        request: uservoice_client::SearchSuggestionsRequest,
+    ) -> Result<ApiResponse<uservoice_client::SuggestionPage>, uservoice_client::ClientError> {
+        let is_page_two = matches!(
+            request.continuation,
+            Some(uservoice_client::Continuation::Cursor { ref cursor }) if cursor == "page2"
+        );
+        let (id, has_more, next) = if is_page_two {
+            (202, false, None)
+        } else {
+            (
+                101,
+                true,
+                Some(uservoice_client::Continuation::Cursor {
+                    cursor: "page2".to_owned(),
+                }),
+            )
+        };
+        Ok(test_response(uservoice_client::SuggestionPage {
+            items: vec![make_suggestion(id)],
+            pagination: uservoice_client::Pagination {
+                per_page: 100,
+                total_records: Some(2),
+                next,
+                has_more,
+                limit_hit: false,
+            },
+        }))
+    }
+
+    async fn current_user(
+        &self,
+    ) -> Result<ApiResponse<uservoice_client::User>, uservoice_client::ClientError> {
+        self.inner().current_user().await
+    }
+    async fn workspace_catalog(
+        &self,
+    ) -> Result<ApiResponse<uservoice_client::WorkspaceCatalog>, uservoice_client::ClientError>
+    {
+        self.inner().workspace_catalog().await
+    }
+    async fn suggestion(
+        &self,
+        id: uservoice_client::IdeaId,
+    ) -> Result<ApiResponse<uservoice_client::Suggestion>, uservoice_client::ClientError> {
+        self.inner().suggestion(id).await
+    }
+    async fn comments(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Comment>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().comments(id, pp).await
+    }
+    async fn notes(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Note>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().notes(id, pp).await
+    }
+    async fn supporters(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Supporter>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().supporters(id, pp).await
+    }
+    async fn feedback_records(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::FeedbackRecord>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().feedback_records(id, pp).await
+    }
+    async fn status_updates(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::StatusUpdate>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().status_updates(id, pp).await
+    }
+    async fn activity(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::ActivityEntry>>,
+        uservoice_client::ClientError,
+    > {
+        self.inner().activity(id, pp).await
+    }
+    async fn update_suggestion(
+        &self,
+        id: uservoice_client::IdeaId,
+        req: uservoice_client::UpdateSuggestionRequest,
+    ) -> Result<ApiResponse<uservoice_client::Suggestion>, uservoice_client::ClientError> {
+        self.inner().update_suggestion(id, req).await
+    }
+    async fn attach_label(
+        &self,
+        id: uservoice_client::IdeaId,
+        lid: uservoice_client::LabelId,
+    ) -> Result<ApiResponse<()>, uservoice_client::ClientError> {
+        self.inner().attach_label(id, lid).await
+    }
+    async fn detach_label(
+        &self,
+        id: uservoice_client::IdeaId,
+        lid: uservoice_client::LabelId,
+    ) -> Result<ApiResponse<()>, uservoice_client::ClientError> {
+        self.inner().detach_label(id, lid).await
+    }
+    async fn create_note(
+        &self,
+        id: uservoice_client::IdeaId,
+        body: String,
+    ) -> Result<ApiResponse<uservoice_client::Note>, uservoice_client::ClientError> {
+        self.inner().create_note(id, body).await
+    }
+    async fn create_status_update(
+        &self,
+        req: uservoice_client::CreateStatusUpdateRequest,
+    ) -> Result<ApiResponse<uservoice_client::StatusUpdate>, uservoice_client::ClientError> {
+        self.inner().create_status_update(req).await
+    }
+    async fn create_feedback_record(
+        &self,
+        req: uservoice_client::CreateFeedbackRecordRequest,
+    ) -> Result<ApiResponse<uservoice_client::FeedbackRecord>, uservoice_client::ClientError> {
+        self.inner().create_feedback_record(req).await
+    }
+}
+
+impl TwoPageApi {
+    fn inner(&self) -> support::FakeUserVoiceApi {
+        support::FakeUserVoiceApi::complete()
+    }
+}
+
+fn make_suggestion(id: i64) -> uservoice_client::Suggestion {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "title": format!("Idea {id}"),
+        "body": "Body",
+        "body_mime_type": "text/plain",
+        "channel": "portal",
+        "state": "published",
+        "created_at": "2025-01-02T03:04:05Z",
+        "updated_at": "2025-02-03T04:05:06Z",
+        "closed_at": null,
+        "comments_count": 0,
+        "notes_count": 0,
+        "supporters_count": 0,
+        "requests_count": 0,
+        "portal_url": null,
+        "admin_url": null,
+        "links": {
+            "forum": 11,
+            "category": 12,
+            "status": 13,
+            "labels": [],
+            "created_by": 7,
+            "assigned_owner": null
+        }
+    }))
+    .expect("valid suggestion fixture")
+}
+
+#[derive(Clone)]
+struct FailOnSecondPageApi {
+    call_count: Arc<Mutex<usize>>,
+}
+
+impl UserVoiceApi for FailOnSecondPageApi {
+    async fn search_suggestions(
+        &self,
+        _request: uservoice_client::SearchSuggestionsRequest,
+    ) -> Result<ApiResponse<uservoice_client::SuggestionPage>, uservoice_client::ClientError> {
+        let mut count = self.call_count.lock().expect("lock");
+        *count += 1;
+        if *count >= 2 {
+            return Err(uservoice_client::ClientError::HttpStatus { status: 500 });
+        }
+        Ok(test_response(uservoice_client::SuggestionPage {
+            items: vec![make_suggestion(101)],
+            pagination: uservoice_client::Pagination {
+                per_page: 100,
+                total_records: Some(2),
+                next: Some(uservoice_client::Continuation::Cursor {
+                    cursor: "page2".to_owned(),
+                }),
+                has_more: true,
+                limit_hit: false,
+            },
+        }))
+    }
+
+    async fn current_user(
+        &self,
+    ) -> Result<ApiResponse<uservoice_client::User>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete().current_user().await
+    }
+    async fn workspace_catalog(
+        &self,
+    ) -> Result<ApiResponse<uservoice_client::WorkspaceCatalog>, uservoice_client::ClientError>
+    {
+        support::FakeUserVoiceApi::complete()
+            .workspace_catalog()
+            .await
+    }
+    async fn suggestion(
+        &self,
+        id: uservoice_client::IdeaId,
+    ) -> Result<ApiResponse<uservoice_client::Suggestion>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete().suggestion(id).await
+    }
+    async fn comments(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Comment>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete().comments(id, pp).await
+    }
+    async fn notes(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Note>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete().notes(id, pp).await
+    }
+    async fn supporters(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::Supporter>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete()
+            .supporters(id, pp)
+            .await
+    }
+    async fn feedback_records(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::FeedbackRecord>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete()
+            .feedback_records(id, pp)
+            .await
+    }
+    async fn status_updates(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::StatusUpdate>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete()
+            .status_updates(id, pp)
+            .await
+    }
+    async fn activity(
+        &self,
+        id: uservoice_client::IdeaId,
+        pp: u32,
+    ) -> Result<
+        ApiResponse<uservoice_client::ContextPage<uservoice_client::ActivityEntry>>,
+        uservoice_client::ClientError,
+    > {
+        support::FakeUserVoiceApi::complete().activity(id, pp).await
+    }
+    async fn update_suggestion(
+        &self,
+        id: uservoice_client::IdeaId,
+        req: uservoice_client::UpdateSuggestionRequest,
+    ) -> Result<ApiResponse<uservoice_client::Suggestion>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .update_suggestion(id, req)
+            .await
+    }
+    async fn attach_label(
+        &self,
+        id: uservoice_client::IdeaId,
+        lid: uservoice_client::LabelId,
+    ) -> Result<ApiResponse<()>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .attach_label(id, lid)
+            .await
+    }
+    async fn detach_label(
+        &self,
+        id: uservoice_client::IdeaId,
+        lid: uservoice_client::LabelId,
+    ) -> Result<ApiResponse<()>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .detach_label(id, lid)
+            .await
+    }
+    async fn create_note(
+        &self,
+        id: uservoice_client::IdeaId,
+        body: String,
+    ) -> Result<ApiResponse<uservoice_client::Note>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .create_note(id, body)
+            .await
+    }
+    async fn create_status_update(
+        &self,
+        req: uservoice_client::CreateStatusUpdateRequest,
+    ) -> Result<ApiResponse<uservoice_client::StatusUpdate>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .create_status_update(req)
+            .await
+    }
+    async fn create_feedback_record(
+        &self,
+        req: uservoice_client::CreateFeedbackRecordRequest,
+    ) -> Result<ApiResponse<uservoice_client::FeedbackRecord>, uservoice_client::ClientError> {
+        support::FakeUserVoiceApi::complete()
+            .create_feedback_record(req)
+            .await
+    }
+}
+
+#[tokio::test]
+async fn search_all_conflicts_with_json_output() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let mut output = Vec::new();
+    let mut stderr_buf = Vec::new();
+
+    let result = run_cli_with_stderr(
+        &app,
+        &checkpoints,
+        Cli::try_parse_from([
+            "uservoice-cli",
+            "--output",
+            "json",
+            "ideas",
+            "search",
+            "--query",
+            "test",
+            "--all",
+        ])
+        .expect("CLI parses"),
+        &mut output,
+        &mut stderr_buf,
+    )
+    .await;
+    let err = result.expect_err("--output json --all must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("--all") && msg.contains("json"),
+        "error should mention --all and json: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn search_all_streams_ndjson_across_two_pages() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(TwoPageApi), 2);
+    let mut output = Vec::new();
+    let mut stderr_buf = Vec::new();
+
+    let result = run_cli_with_stderr(
+        &app,
+        &checkpoints,
+        Cli::try_parse_from([
+            "uservoice-cli",
+            "ideas",
+            "search",
+            "--query",
+            "test",
+            "--all",
+        ])
+        .expect("CLI"),
+        &mut output,
+        &mut stderr_buf,
+    )
+    .await;
+    assert!(result.is_ok(), "--all should succeed: {:?}", result.err());
+
+    let lines: Vec<&[u8]> = output
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(lines.len(), 2, "should have 2 NDJSON lines from 2 pages");
+
+    let first: serde_json::Value = serde_json::from_slice(lines[0]).expect("line 1 valid JSON");
+    assert_eq!(first["suggestion"]["id"], 101);
+
+    let second: serde_json::Value = serde_json::from_slice(lines[1]).expect("line 2 valid JSON");
+    assert_eq!(second["suggestion"]["id"], 202);
+
+    let stderr = String::from_utf8_lossy(&stderr_buf);
+    assert!(
+        stderr.contains("next: page2"),
+        "stderr should contain cursor hint: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn search_all_streams_partial_on_failure() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let api = FailOnSecondPageApi {
+        call_count: Arc::new(Mutex::new(0)),
+    };
+    let app = App::new(Arc::new(api), 2);
+    let mut output = Vec::new();
+    let mut stderr_buf = Vec::new();
+
+    let result = run_cli_with_stderr(
+        &app,
+        &checkpoints,
+        Cli::try_parse_from([
+            "uservoice-cli",
+            "ideas",
+            "search",
+            "--query",
+            "test",
+            "--all",
+        ])
+        .expect("CLI"),
+        &mut output,
+        &mut stderr_buf,
+    )
+    .await;
+    assert!(result.is_err(), "--all should fail on page 2");
+
+    let lines: Vec<&[u8]> = output
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(lines.len(), 1, "should have 1 NDJSON line from page 1");
+    let idea: serde_json::Value = serde_json::from_slice(lines[0]).expect("valid JSON");
+    assert_eq!(idea["suggestion"]["id"], 101);
+
+    let stderr = String::from_utf8_lossy(&stderr_buf);
+    assert!(
+        stderr.contains("fail:"),
+        "stderr should contain fail message: {stderr}"
+    );
+    assert!(
+        stderr.contains("resume with --cursor"),
+        "stderr should suggest resume: {stderr}"
+    );
 }

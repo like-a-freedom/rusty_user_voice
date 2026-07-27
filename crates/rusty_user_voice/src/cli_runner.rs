@@ -16,11 +16,37 @@ pub async fn run_cli<G: UserVoiceApi>(
     cli: Cli,
     output: &mut dyn Write,
 ) -> Result<(), AppError> {
-    let mode = cli.output;
-    if mode == OutputMode::Ndjson && !matches!(&cli.command, Command::Ideas { .. }) {
+    run_cli_with_stderr(app, checkpoints, cli, output, &mut io::stderr()).await
+}
+
+pub async fn run_cli_with_stderr<G: UserVoiceApi>(
+    app: &App<G>,
+    checkpoints: &CheckpointStore,
+    cli: Cli,
+    output: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), AppError> {
+    let mut mode = cli.output;
+    let search_all_flag = matches!(
+        &cli.command,
+        Command::Ideas { command }
+            if matches!(&**command, IdeasCommand::Search(args) if args.all)
+    );
+    if mode == OutputMode::Ndjson
+        && !matches!(&cli.command, Command::Ideas { .. })
+        && !search_all_flag
+    {
         return Err(AppError::Validation(
             "--output ndjson is valid only for ideas collect".to_owned(),
         ));
+    }
+    if search_all_flag && mode == OutputMode::Json {
+        return Err(AppError::Validation(
+            "--all cannot be combined with --output json; use ndjson".to_owned(),
+        ));
+    }
+    if search_all_flag && mode != OutputMode::Ndjson {
+        mode = OutputMode::Ndjson;
     }
     match cli.command {
         Command::Workspace { include_catalog } => {
@@ -31,6 +57,9 @@ pub async fn run_cli<G: UserVoiceApi>(
         }
         Command::Ideas { command } => match *command {
             IdeasCommand::Search(args) => {
+                if args.all {
+                    return auto_paginate_search(app, &args, output, stderr).await;
+                }
                 let result = app
                     .search_ideas(SearchIdeasParams {
                         query: args.query,
@@ -228,6 +257,79 @@ fn write_result<T: Serialize>(
                 .and_then(serde_json::Value::as_array)
                 .map_or(1, Vec::len);
             writeln!(output, "status={status} records={count}")?;
+        }
+    }
+    Ok(())
+}
+
+async fn auto_paginate_search<G: UserVoiceApi>(
+    app: &App<G>,
+    args: &crate::cli::SearchArgs,
+    output: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), AppError> {
+    let mut continuation = cli::continuation(args.cursor.clone(), args.page);
+    let mut total = 0u64;
+    loop {
+        let result = app
+            .search_ideas(SearchIdeasParams {
+                query: args.query.clone(),
+                updated_after: args.updated_after,
+                updated_before: args.updated_before,
+                forum_ids: cli::forum_ids(args.forum_ids.clone()),
+                category_ids: cli::category_ids(args.category_ids.clone()),
+                status_ids: cli::status_ids(args.status_ids.clone()),
+                label_ids: cli::label_ids(args.label_ids.clone()),
+                states: args.states.clone(),
+                sort: args.sort.clone(),
+                per_page: args.per_page,
+                continuation: continuation.clone(),
+            })
+            .await;
+        match result {
+            Ok(envelope) => {
+                let count = envelope.data.ideas.len() as u64;
+                for idea in &envelope.data.ideas {
+                    serde_json::to_writer(&mut *output, idea)?;
+                    writeln!(output)?;
+                }
+                total += count;
+                output.flush()?;
+                let has_more = envelope.pagination.as_ref().is_some_and(|p| p.has_more);
+                if has_more {
+                    let next_cursor = envelope
+                        .pagination
+                        .as_ref()
+                        .and_then(|p| p.next.as_ref())
+                        .map(|c| match c {
+                            uservoice_client::Continuation::Cursor { cursor } => cursor.clone(),
+                            uservoice_client::Continuation::Page { page } => page.to_string(),
+                        });
+                    if let Some(cursor) = next_cursor {
+                        writeln!(stderr, "next: {cursor}")?;
+                        continuation = Some(uservoice_client::Continuation::Cursor { cursor });
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            Err(err) => {
+                let cursor_hint = continuation.as_ref().map(|c| match c {
+                    uservoice_client::Continuation::Cursor { cursor } => cursor.clone(),
+                    uservoice_client::Continuation::Page { page } => page.to_string(),
+                });
+                if let Some(cursor) = cursor_hint {
+                    writeln!(
+                        stderr,
+                        "fail: collected {total}, resume with --cursor {cursor} --all"
+                    )?;
+                } else {
+                    writeln!(stderr, "fail: collected {total}, cannot resume")?;
+                }
+                return Err(err);
+            }
         }
     }
     Ok(())
