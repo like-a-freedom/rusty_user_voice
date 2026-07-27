@@ -26,8 +26,8 @@ pub struct Cli {
         value_parser = clap::value_parser!(u32).range(1..=8),
     )]
     pub max_in_flight: Option<u32>,
-    #[arg(long, value_enum, default_value = "human")]
-    pub output: OutputMode,
+    #[arg(long, value_enum)]
+    pub output: Option<OutputMode>,
     #[command(subcommand)]
     pub command: Command,
 }

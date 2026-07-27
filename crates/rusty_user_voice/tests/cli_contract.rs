@@ -188,7 +188,7 @@ fn collect_parses_ndjson_and_cursor() {
         "--cursor",
         "cursor-2",
     ]);
-    assert_eq!(cli.output, rusty_user_voice::OutputMode::Ndjson);
+    assert_eq!(cli.output, Some(rusty_user_voice::OutputMode::Ndjson));
     assert!(matches!(
         cli.command,
         rusty_user_voice::Command::Ideas { .. }
@@ -364,7 +364,7 @@ fn collect_parses_taxonomy_filters() {
         "--sort",
         "votes",
     ]);
-    assert_eq!(cli.output, rusty_user_voice::OutputMode::Ndjson);
+    assert_eq!(cli.output, Some(rusty_user_voice::OutputMode::Ndjson));
     match cli.command {
         rusty_user_voice::Command::Ideas { command } => match *command {
             rusty_user_voice::IdeasCommand::Collect(args) => {

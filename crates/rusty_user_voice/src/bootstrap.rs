@@ -5,7 +5,8 @@ use uservoice_client::ReqwestUserVoiceClient;
 use crate::{App, Settings, error::AppError, ledger::DiskChangeLedger};
 
 pub fn build_app(settings: &Settings) -> Result<App<ReqwestUserVoiceClient>, AppError> {
-    let mut http_builder = reqwest::Client::builder();
+    let mut http_builder = reqwest::Client::builder()
+        .user_agent(concat!("rusty-user-voice/", env!("CARGO_PKG_VERSION")));
     if let Some(ref cert_path) = settings.ca_cert {
         let pem = std::fs::read(cert_path)
             .map_err(|e| AppError::Validation(format!("failed to read ca_cert: {e}")))?;

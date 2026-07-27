@@ -26,7 +26,7 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
     output: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), AppError> {
-    let mut mode = cli.output;
+    let mut mode = cli.output.unwrap_or(OutputMode::Human);
     let search_all_flag = matches!(
         &cli.command,
         Command::Ideas { command }
