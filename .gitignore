@@ -10,6 +10,10 @@
 .vscode/
 .qwen/
 
+# Internal planning/spec artifacts (working documents; not user-facing).
+# Working notes for the maintainer only — keep them out of the published tree.
+docs/superpowers/
+
 # Environment and secrets
 .env
 .env.*

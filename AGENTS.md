@@ -1,5 +1,3 @@
-@/Users/solovey/.codex/RTK.md
-
 ## Agent skills
 
 ### Issue tracker
