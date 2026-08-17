@@ -2,10 +2,10 @@
 
 ## Credential boundary
 
-- `USERVOICE_API_KEY` is read only from the process environment. It is never accepted as a CLI argument, serialized to disk, logged, or included in MCP output.
+- `USERVOICE_API_KEY` is accepted from the process environment or `config.yaml`; it is never accepted as a CLI argument, copied into the local state directory, logged, or included in MCP output.
 - `AccessToken` wraps the token in `Arc<str>` with `Debug`/`Display` redacted to `[REDACTED]`.
 - The token value is only passed to reqwest's `bearer_auth()` call inside `ReqwestUserVoiceClient`.
-- `.env.test` must have mode `0600` and is never read by the tool itself.
+- Local credential files such as `.env.test` must have mode `0600` and are sourced by the operator; the tool does not read dotenv files automatically.
 
 ## Network boundary
 

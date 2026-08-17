@@ -1,83 +1,123 @@
 # rusty-user-voice
 
-Local UserVoice Admin API MCP stdio server and CLI for AI product-manager workflows.
+A local Rust MCP stdio server and CLI for working with UserVoice feedback from AI assistants.
 
-One binary, zero external services. Connect your AI assistant (Claude Code, Cursor, Zed) or terminal directly to your UserVoice tenant — search ideas, collect time-windowed snapshots, preview & apply mutations safely, record provenance-tracked feedback. Built-in rate limiting, retry logic, and an audit ledger.
+It ships two binaries. The MCP server communicates over stdio and opens no inbound HTTP service. Use the CLI or MCP tools to search ideas, collect snapshots, preview and apply changes, and record feedback with its source. Rate limiting, retries, and an audit ledger are built in.
+
+[![CI workflow](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024_edition-orange?logo=rust&logoColor=white)](https://doc.rust-lang.org/edition-guide/rust-2024/)
+[![MCP stdio](https://img.shields.io/badge/MCP-stdio-6f42c1)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 
 ---
 
-## Why this tool
+## What it does
 
-| Problem | Solution |
-|---------|----------|
-| AI can't reach UserVoice securely | MCP stdio server — token never leaves your process, no HTTP server exposed |
-| Manual triage is slow | `collect` streams NDJSON of ideas in a time window; resumable via named checkpoints |
-| Mutations are risky | Two-phase preview→apply with `change_id` TTL, optimistic `updated_at` checks, idempotency keys, on-disk ledger |
-| Context is fragmented | `workspace_context` loads taxonomy (forums, categories, statuses, labels) in one call; `get_idea_context` loads full idea + comments + notes + feedback + supporters |
-| No audit trail | Local ledger stores preview records, idempotency receipts, collection checkpoints — no secrets, no PII |
-| Rate limits bite | Configurable in-flight limit (1–8), automatic backoff with `Retry-After`, structured tracing to stderr |
+| Problem | How the project handles it |
+|---------|----------------------------|
+| An AI assistant needs UserVoice access | The MCP server keeps the token out of assistant messages and logs. It sends the token to UserVoice over HTTPS. |
+| Triage takes too long | `collect` streams NDJSON for a time window and resumes from named checkpoints. |
+| Changes need review | Every write uses preview and apply, with a `change_id` TTL, optimistic `updated_at` checks, idempotency keys, and an on-disk ledger. |
+| Context is spread across UserVoice | `workspace_context` loads forums, categories, statuses, and labels. `get_idea_context` loads an idea with comments, notes, feedback, and supporters. |
+| Changes need a record | The local ledger stores preview records, idempotency receipts, and collection checkpoints. It stores no secrets or PII. |
+| UserVoice rate limits requests | The client limits in-flight requests, backs off using `Retry-After`, and writes structured traces to stderr. |
+
+---
+
+## Quick start
+
+Requirements: Rust stable and UserVoice Admin API access.
+
+From a local checkout, install both binaries:
+
+```bash
+cargo install --path crates/rusty_user_voice --bins --locked
+```
+
+Configure the process environment and verify access:
+
+```bash
+export USERVOICE_BASE_URL="https://your-tenant.uservoice.com"
+export USERVOICE_API_KEY="<admin-bearer-token>"
+uservoice-cli workspace --include-catalog
+```
+
+See [MCP server](#mcp-server) for client configuration. [Configuration](#configuration) lists all available settings.
 
 ---
 
 ## Architecture
 
-Two-crate Rust workspace (edition 2024, MSRV 1.85):
+This is a two-crate Rust workspace that uses edition 2024. The package metadata declares compatibility with Rust 1.85 and later.
 
 | Crate | Responsibility |
 |-------|----------------|
-| [`uservoice_client`](../crates/uservoice_client) | Typed HTTP adapter: auth, models, pagination, rate limits, retries. Zero workflow logic. |
-| [`rusty_user_voice`](../crates/rusty_user_voice) | Application layer: CLI (`uservoice-cli`), MCP server (`uservoice-mcp`), config resolution, checkpoint store, change ledger, domain workflows. |
+| [`uservoice_client`](crates/uservoice_client) | Typed HTTP adapter: auth, models, pagination, rate limits, retries. Zero workflow logic. |
+| [`rusty_user_voice`](crates/rusty_user_voice) | Application layer: CLI (`uservoice-cli`), MCP server (`uservoice-mcp`), config resolution, checkpoint store, change ledger, domain workflows. |
 
-Entry points (both in `crates/rusty_user_voice`):
+The binaries live in `crates/rusty_user_voice`:
+
 - `src/main.rs` → `uservoice-mcp` (MCP stdio server)
 - `src/bin/cli.rs` → `uservoice-cli` (terminal workflows)
 
 See [`CONTEXT.md`](CONTEXT.md) for ubiquitous language and [`docs/adr/`](docs/adr/) for architectural decisions.
 
+```mermaid
+flowchart LR
+    Client[AI client or terminal] --> App[Application crate]
+    App --> Adapter[Typed UserVoice client]
+    App --> State[Ledger and checkpoints]
+    Adapter -->|HTTPS bearer auth| API[UserVoice Admin API]
+```
+
 ---
 
 ## Security
 
-- **Credential boundary**: `USERVOICE_API_KEY` read **only** from process env. Never a CLI flag, never logged, never serialized, `Debug`/`Display` redacted to `[REDACTED]`.
-- **Network boundary**: Outbound HTTPS only to `https://<tenant>.uservoice.com/api/v2/admin/...`. Loopback HTTP allowed only in test mode.
-- **Mutation safety**: Every write requires preview → apply. Preview returns opaque `change_id` (15 min TTL). Apply demands `confirmation="apply"` + caller-generated `idempotency_key`. Ledger enforces at-most-once apply.
-- **Local state**: `USERVOICE_STATE_DIR` holds only preview records, idempotency hashes, and collection cursors. No tokens, no feedback bodies, no emails.
-- **File perms**: Local credential files (e.g. `.env`) should be mode `0600`. Config file (`config.yaml`) contains secrets — never commit. See `.env.example` for the variable list.
+- **Credentials**: `USERVOICE_API_KEY` comes from the process environment or `config.yaml`, never from a CLI flag. The client sends it to UserVoice as an HTTPS bearer token. It never logs the token or puts it in MCP output or local state. `Debug` and `Display` output it as `[REDACTED]`.
+- **Network**: The client uses HTTPS for `https://<tenant>.uservoice.com/api/v2/admin/...`. It allows HTTP only for loopback hosts in tests.
+- **Writes**: Every write uses preview and apply. Preview returns an opaque `change_id` with a 15-minute TTL. Apply requires `confirmation="apply"` and a caller-generated `idempotency_key`. The ledger prevents a `change_id` from being applied twice.
+- **Local state**: `USERVOICE_STATE_DIR` contains preview records, idempotency hashes, and collection cursors. It contains no tokens, feedback bodies, or email addresses.
+- **File permissions**: Set local credential files such as `.env` to mode `0600`. Never commit `config.yaml`, which can contain secrets. See `.env.example` for the variable list.
 
 ---
 
 ## Configuration
 
-Resolution order (highest wins): **CLI flags → Environment variables → `config.yaml` → Defaults**.
+The application resolves settings in this order: **CLI flags, environment variables, `config.yaml`, then defaults**.
 
-Config file locations (checked in order):
-1. `./config.yaml` (next to binary)
+It checks these config file locations in order:
+1. `config.yaml` next to the binary
 2. `~/.config/rusty-user-voice/config.yaml`
 
+On macOS and Linux:
+
 ```bash
-cp config.example.yaml config.yaml
+mkdir -p "$HOME/.config/rusty-user-voice"
+cp config.example.yaml "$HOME/.config/rusty-user-voice/config.yaml"
 # edit with your values
 ```
 
 ### Environment variables & config keys
 
-| Field | CLI flag | Env var | Config key | Type | Default | Range / Values |
-|-------|----------|---------|------------|------|---------|----------------|
+| Setting | CLI flag | Env var | Config key | Type | Default | Range / values |
+|---------|----------|----------|-------------|------|---------|----------------|
 | Base URL | `--base-url` | `USERVOICE_BASE_URL` | `uservoice_base_url` | string | **required** | `https://<tenant>.uservoice.com` |
-| API token | — | `USERVOICE_API_KEY` | `uservoice_api_key` | string | **required** | Bearer token from Admin Console |
+| API token | not available | `USERVOICE_API_KEY` | `uservoice_api_key` | string | **required** | Bearer token from Admin Console |
 | State dir | `--state-dir` | `USERVOICE_STATE_DIR` | `uservoice_state_dir` | path | platform app data dir¹ | writable directory |
-| Max in-flight | `--max-in-flight` | `USERVOICE_MAX_IN_FLIGHT` | `uservoice_max_in_flight` | u32 | `2` | `1–8` |
+| Max in-flight | `--max-in-flight` | `USERVOICE_MAX_IN_FLIGHT` | `uservoice_max_in_flight` | u32 | `2` | `1` to `8` |
 | Default output | `--output` | `USERVOICE_DEFAULT_OUTPUT` | `default_output` | enum | `human` | `human \| json \| ndjson` |
-| CA certificate | — | — | `ca_cert` | path | *(none)* | PEM/DER file for on-prem TLS |
-| Log level | — | `USERVOICE_LOG_LEVEL` | `log_level` | enum | `warn` | `error \| warn \| info \| debug \| trace` (RUST_LOG overrides) |
+| CA certificate | not available | not available | `ca_cert` | path | *(none)* | PEM/DER file for on-prem TLS |
+| Log level | not available | `USERVOICE_LOG_LEVEL` | `log_level` | enum | `warn` | `error \| warn \| info \| debug \| trace` (`RUST_LOG` overrides) |
 
-¹ Platform dirs: `$XDG_STATE_HOME/rusty-user-voice` (Linux), `~/Library/Application Support/rusty-user-voice` (macOS), `%LOCALAPPDATA%\rusty-user-voice` (Windows).
+¹ Platform defaults: `$XDG_STATE_HOME/rusty-user-voice` on Linux, `~/Library/Application Support/rusty-user-voice` on macOS, and `%LOCALAPPDATA%\rusty-user-voice` on Windows.
 
 ### Example `config.yaml`
 
 ```yaml
-# Required
-uservoice_api_key: "uvp_xxxxxxxxxxxxxxxx"
+# Required. Prefer USERVOICE_API_KEY in the process environment.
+# Keep committed examples empty; never commit a real token.
+uservoice_api_key: ""
 uservoice_base_url: "https://acme.uservoice.com"
 
 # Optional
@@ -90,9 +130,9 @@ log_level: "info"
 
 ---
 
-## CLI Workflows
+## CLI workflows
 
-Binary: `uservoice-cli` (or `cargo run --bin uservoice-cli --`)
+The CLI binary is `uservoice-cli`. You can also run it with `cargo run --bin uservoice-cli --`.
 
 ### Global flags
 ```bash
@@ -103,7 +143,7 @@ uservoice-cli --base-url https://acme.uservoice.com \
               <command>
 ```
 
-### Discover taxonomy & search ideas
+### Discover the workspace and search ideas
 ```bash
 # Full workspace context (principal + forums + categories + statuses + labels + rate limit)
 uservoice-cli workspace --include-catalog
@@ -121,7 +161,7 @@ uservoice-cli ideas search --query export --all
 uservoice-cli ideas get 101 --detail-level full --include-supporters
 ```
 
-### Collect a stable time window (resumable)
+### Collect a time window
 ```bash
 # Named checkpoint auto-resumes on re-run with same --checkpoint-name
 uservoice-cli --output ndjson ideas collect \
@@ -136,9 +176,9 @@ uservoice-cli --output ndjson ideas collect \
   --query osmp
 ```
 
-> **Pagination & cursors**: See [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md) for cursor vs page, `--all` streaming, and checkpoint mechanics.
+> **Pagination and cursors:** See [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md) for page and cursor behavior, `--all` streaming, and checkpoints.
 
-### Safe mutations: preview → apply
+### Preview and apply changes
 ```bash
 # 1. Preview (dry-run) — returns change_id
 uservoice-cli --output json ideas update 101 \
@@ -156,7 +196,7 @@ uservoice-cli --output json ideas update 101 \
   --idempotency-key pm-run-20260724-idea-101
 ```
 
-### Publish public status updates
+### Publish status updates
 ```bash
 uservoice-cli --output json ideas publish 101 \
   --mode preview \
@@ -172,7 +212,7 @@ uservoice-cli --output json ideas publish 101 \
   --idempotency-key pm-publish-20260724-idea-101
 ```
 
-### Record provenance-tracked feedback
+### Record feedback with its source
 ```bash
 uservoice-cli --output json feedback record \
   --body "Customer needs a downloadable roadmap." \
@@ -183,15 +223,15 @@ uservoice-cli --output json feedback record \
   --idempotency-key feedback-case-42
 ```
 
-> **Feedback channels**: `admin`, `api`, `bookmarklet`, `gainsight`, `import`, `portal`, `roadmap`, `slack`, `zendesk` (see [`cli.rs:265-292`](../crates/rusty_user_voice/src/cli.rs#L265-L292))
+Available feedback channels: `admin`, `api`, `bookmarklet`, `gainsight`, `import`, `portal`, `roadmap`, `slack`, and `zendesk`. See [`cli.rs:265-292`](crates/rusty_user_voice/src/cli.rs#L265-L292).
 
 ---
 
-## MCP Server
+## MCP server
 
-Binary: `uservoice-mcp` (stdio transport only).
+The `uservoice-mcp` binary uses stdio transport only.
 
-### Client config (Claude Code, Cursor, Zed, etc.)
+### Client configuration
 ```json
 {
   "mcpServers": {
@@ -206,9 +246,9 @@ Binary: `uservoice-mcp` (stdio transport only).
 }
 ```
 
-> `USERVOICE_API_KEY` must be present in the **process environment** that spawns the MCP server (shell, systemd, launchd, etc.). Never put it in the JSON config.
+> Set `USERVOICE_API_KEY` in the process environment that starts the MCP server. The key may also come from `config.yaml`, but never put it in the MCP JSON configuration.
 
-### Exposed tools (7 intents)
+### Available tools
 
 | Tool | Purpose | Read-only? |
 |------|---------|------------|
@@ -220,44 +260,56 @@ Binary: `uservoice-mcp` (stdio transport only).
 | `uservoice_publish_idea_update` | Public status update to supporters. Same preview/apply flow. | ❌ |
 | `uservoice_record_feedback` | Import external feedback (support, Slack, email) with provenance (`channel`, `source_url`, `source_guid`). Idempotent via `idempotency_key`. | ❌ |
 
-**Workflow**: `workspace_context` → `search_ideas` → `get_idea_context` → (mutation tools with preview/apply).
+A typical read workflow is `workspace_context` → `search_ideas` → `get_idea_context`. Use preview and apply for mutation tools.
 
 ---
 
 ## Verification
 
-### Offline (no credentials)
+### Without credentials
 ```bash
 # Formatting
 cargo fmt --all -- --check
 
 # Linting (deny warnings)
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Unit + integration tests (fixtures only)
-cargo test --workspace
+# Config tests mutate process-wide environment variables, so run tests serially.
+cargo test --workspace --all-features --locked --no-fail-fast -- --test-threads=1
 
 # Documentation
-cargo doc --workspace --no-deps
+cargo doc --workspace --all-features --no-deps --locked
 ```
 
-### Live smoke test (requires credentials in the process env)
+### Live smoke test
 
-Live smoke tests are `#[ignore]`d by default and run only against a real UserVoice
-tenant. They expect a valid bearer token in the process environment; the project
-does not commit a credential file. On macOS you can source a local env file:
+These ignored tests call a real UserVoice tenant. Run them only with a valid bearer token in the process environment. The project does not commit credential files. On macOS, you can source a local env file:
 
 ```bash
 test "$(stat -f '%Lp' .env)" = "600"   # macOS
 set -a; source .env; set +a
-cargo test --workspace -- --ignored
+cargo test --workspace --all-features --locked -- --ignored --test-threads=1
 ```
 
 On Linux use `stat -c '%a' .env` instead of `stat -f '%Lp' .env`.
 
 ---
 
-## References in this repo
+## Support and contributing
+
+Use the repository's GitHub Issues tab for bug reports and feature requests. Include the command or MCP call, operating system, Rust toolchain, and a redacted error log. Do not include API tokens or customer data.
+
+Before opening a pull request:
+
+1. Keep the change focused and update the relevant documentation.
+2. Add or update fixture-based tests when behavior changes.
+3. Run the complete [verification](#without-credentials) suite.
+4. Describe any security or migration impact.
+
+---
+
+## References
 
 | Topic | File |
 |-------|------|
@@ -268,23 +320,10 @@ On Linux use `stat -c '%a' .env` instead of `stat -f '%Lp' .env`.
 | Pagination, cursors, checkpoints | [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md) |
 | Idea triage workflow | [`skills/uservoice-pm/references/triage-ideas.md`](skills/uservoice-pm/references/triage-ideas.md) |
 | Close-the-loop feedback workflow | [`skills/uservoice-pm/references/close-feedback-loop.md`](skills/uservoice-pm/references/close-feedback-loop.md) |
-| CLI argument definitions | [`crates/rusty_user_voice/src/cli.rs`](../crates/rusty_user_voice/src/cli.rs) |
-| Config loading & precedence | [`crates/rusty_user_voice/src/config.rs`](../crates/rusty_user_voice/src/config.rs) |
-| MCP tool definitions | [`crates/rusty_user_voice/src/mcp.rs`](../crates/rusty_user_voice/src/mcp.rs) |
+| CLI argument definitions | [`crates/rusty_user_voice/src/cli.rs`](crates/rusty_user_voice/src/cli.rs) |
+| Config loading & precedence | [`crates/rusty_user_voice/src/config.rs`](crates/rusty_user_voice/src/config.rs) |
+| MCP tool definitions | [`crates/rusty_user_voice/src/mcp.rs`](crates/rusty_user_voice/src/mcp.rs) |
 | Example config file | [`config.example.yaml`](config.example.yaml) |
-
----
-
-## Installation
-
-```bash
-# From source (Rust 1.85+)
-git clone https://github.com/your-org/rusty-user-voice
-cd rusty-user-voice
-cargo install --path crates/rusty_user_voice --bins
-# → ~/.cargo/bin/uservoice-cli
-# → ~/.cargo/bin/uservoice-mcp
-```
 
 ---
 
