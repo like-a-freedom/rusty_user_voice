@@ -1,47 +1,126 @@
-name: ci
+name: Build and Release
 
 on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: Enable debug mode
+        required: false
   pull_request:
-  push:
     branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 env:
-  CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: Rust checks
+  checks:
+    name: Checks (fmt, clippy, tests)
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
+
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           toolchain: stable
-          components: clippy, rustfmt
+          components: rustfmt,clippy
           cache: true
           cache-workspaces: .
-          # Keep warning policy explicit in the individual quality gates below.
-          rustflags: ""
+
       - name: Verify lockfile
         run: cargo fetch --locked
-      - name: Check formatting
+
+      - name: Run fmt check
         run: cargo fmt --all -- --check
+
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
       - name: Run tests
-        # Config tests mutate process-wide environment variables and must not race.
         run: cargo test --workspace --all-features --locked --no-fail-fast -- --test-threads=1
+
       - name: Build documentation
         run: cargo doc --workspace --all-features --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
+
+  build_binaries:
+    name: Build ${{ matrix.platform.os_name }}
+    if: github.event_name == 'release'
+    needs: checks
+    runs-on: ${{ matrix.platform.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os_name: Linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_names: uservoice-mcp_uservoice-cli_linux_x86_64
+          - os_name: Linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin_names: uservoice-mcp_uservoice-cli_linux_arm64
+          - os_name: macOS-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bin_names: uservoice-mcp_uservoice-cli_macos_x86_64
+          - os_name: macOS-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bin_names: uservoice-mcp_uservoice-cli_macos_aarch64
+          - os_name: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_names: uservoice-mcp_uservoice-cli_windows_x86_64
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+        with:
+          toolchain: stable
+          cache: true
+          cache-workspaces: .
+          target: ${{ matrix.platform.target }}
+
+      - name: Build binaries
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare artifacts (Unix)
+        if: matrix.platform.os != 'windows-latest'
+        run: |
+          mkdir -p app/${{ matrix.platform.target }}
+          cp target/${{ matrix.platform.target }}/release/uservoice-mcp \
+             app/${{ matrix.platform.target }}/uservoice-mcp
+          cp target/${{ matrix.platform.target }}/release/uservoice-cli \
+             app/${{ matrix.platform.target }}/uservoice-cli
+
+      - name: Prepare artifacts (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path app/${{ matrix.platform.target }}
+          Copy-Item target/${{ matrix.platform.target }}/release/uservoice-mcp.exe \
+                    app/${{ matrix.platform.target }}/uservoice-mcp.exe
+          Copy-Item target/${{ matrix.platform.target }}/release/uservoice-cli.exe \
+                    app/${{ matrix.platform.target }}/uservoice-cli.exe
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            app/${{ matrix.platform.target }}/uservoice-mcp*
+            app/${{ matrix.platform.target }}/uservoice-cli*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
