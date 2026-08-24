@@ -97,7 +97,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.platform.target }}
 
       - name: Prepare artifacts (Unix)
-        if: matrix.platform.os != 'windows-latest'
+        if: runner.os != 'Windows'
         run: |
           mkdir -p app/${{ matrix.platform.target }}
           cp target/${{ matrix.platform.target }}/release/uservoice-mcp \
@@ -106,14 +106,12 @@ jobs:
              app/${{ matrix.platform.target }}/uservoice-cli
 
       - name: Prepare artifacts (Windows)
-        if: matrix.platform.os == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path app/${{ matrix.platform.target }}
-          Copy-Item target/${{ matrix.platform.target }}/release/uservoice-mcp.exe \
-                    app/${{ matrix.platform.target }}/uservoice-mcp.exe
-          Copy-Item target/${{ matrix.platform.target }}/release/uservoice-cli.exe \
-                    app/${{ matrix.platform.target }}/uservoice-cli.exe
+          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-mcp.exe" "app/${{ matrix.platform.target }}/uservoice-mcp.exe"
+          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-cli.exe" "app/${{ matrix.platform.target }}/uservoice-cli.exe"
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3.0.2
