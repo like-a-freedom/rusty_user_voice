@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{env, io::Write, path::PathBuf};
 
 use uservoice_client::{AccessToken, ApiEndpoint};
 
@@ -6,15 +6,24 @@ use crate::error::AppError;
 
 const CONFIG_FILENAME: &str = "config.yaml";
 
-#[derive(Debug, Clone, serde::Deserialize, Default)]
-struct YamlConfig {
-    uservoice_api_key: Option<String>,
-    uservoice_base_url: Option<String>,
-    uservoice_state_dir: Option<String>,
-    uservoice_max_in_flight: Option<u32>,
-    default_output: Option<String>,
-    ca_cert: Option<String>,
-    log_level: Option<String>,
+// Serialize + crate-visible fields + omit absent optionals: a `null` key
+// would be noise, and missing Option<T> keys already load back as None.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub(crate) struct YamlConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) uservoice_api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) uservoice_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) uservoice_state_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) uservoice_max_in_flight: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) default_output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) ca_cert: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) log_level: Option<String>,
 }
 
 #[derive(Clone)]
@@ -163,6 +172,78 @@ impl Settings {
                 .join(CONFIG_FILENAME),
         )
     }
+
+    /// User-level config path: ~/.config/rusty-user-voice/config.yaml
+    /// (login always writes here — never next to the binary).
+    // Task 1 scaffolding: first used by Task 4; the allow is removed there.
+    #[allow(dead_code)]
+    pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
+        Self::config_path_home()
+    }
+
+    /// Binary-dir config path (next to the executable). Exposed read-only so
+    /// login/logout can report that a deployed config shadows the user file.
+    // Task 1 scaffolding: first used by Task 2 (`shadow_note`); the allow is removed in Task 4.
+    #[allow(dead_code)]
+    pub(crate) fn binary_config_path() -> Option<std::path::PathBuf> {
+        Self::config_path()
+    }
+
+    /// Raw user-file read for the `--force` merge (decision 13). `None` when
+    /// the file is absent or unparseable — login then writes a fresh config.
+    // Task 1 scaffolding: first used by Task 4; the allow is removed there.
+    #[allow(dead_code)]
+    pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
+        let path = Self::config_path_home()?;
+        let content = std::fs::read_to_string(&path).ok()?;
+        serde_yaml::from_str(&content).ok()
+    }
+}
+
+/// Write `cfg` as YAML to an explicit `path`, creating parent dirs. The file
+/// is created 0600 on Unix (the bearer key is a secret) and perms are
+/// re-asserted after the write so a pre-existing 0644 file is tightened too.
+// Task 1 scaffolding: used by unit tests now and by `save_user_config`; the
+// allow covers the non-test build and is removed in Task 4.
+#[allow(dead_code)]
+pub(crate) fn save_to(path: &std::path::Path, cfg: &YamlConfig) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create config dir {}: {}", parent.display(), e))?;
+    }
+    let content =
+        serde_yaml::to_string(cfg).map_err(|e| format!("cannot serialize config: {}", e))?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Mode at creation: never leave a 0644 window on disk.
+        opts.mode(0o600);
+    }
+    let mut f = opts
+        .open(path)
+        .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+    f.write_all(content.as_bytes())
+        .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("cannot chmod 0600 {}: {}", path.display(), e))?;
+    }
+    Ok(())
+}
+
+/// Serialize `cfg` to the user config path. Overwrites unconditionally —
+/// the caller (login) owns the --force guard.
+// Task 1 scaffolding: first used by Task 4; the allow is removed there.
+#[allow(dead_code)]
+pub(crate) fn save_user_config(cfg: &YamlConfig) -> Result<std::path::PathBuf, String> {
+    let path = Settings::config_path_home()
+        .ok_or_else(|| "cannot resolve home directory for config save".to_string())?;
+    save_to(&path, cfg)?;
+    Ok(path)
 }
 
 impl std::fmt::Debug for Settings {
@@ -177,5 +258,81 @@ impl std::fmt::Debug for Settings {
             .field("log_level", &self.log_level)
             .field("ca_cert", &self.ca_cert.as_deref().unwrap_or("(none)"))
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_config_dir(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "uv-cfg-{tag}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn sample(key: &str) -> YamlConfig {
+        YamlConfig {
+            uservoice_api_key: Some(key.to_owned()),
+            uservoice_base_url: Some("https://acme.uservoice.com".to_owned()),
+            uservoice_state_dir: None,
+            uservoice_max_in_flight: Some(4),
+            default_output: Some("json".to_owned()),
+            ca_cert: None,
+            log_level: None,
+        }
+    }
+
+    #[test]
+    fn save_to_roundtrip_with_owner_only_perms() {
+        let dir = temp_config_dir("roundtrip");
+        let path = dir.join("config.yaml");
+        save_to(&path, &sample("uv-pat123")).expect("save works");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("uservoice_base_url"));
+        assert!(content.contains("uv-pat123"));
+        // Absent optionals are omitted, not written as `null` (skip_serializing_if).
+        assert!(!content.contains("null"));
+        // Roundtrip: what we wrote parses back through the real loader path.
+        let parsed: YamlConfig = serde_yaml::from_str(&content).unwrap();
+        assert_eq!(
+            parsed.uservoice_base_url.as_deref(),
+            Some("https://acme.uservoice.com")
+        );
+        assert_eq!(parsed.uservoice_max_in_flight, Some(4));
+        assert!(parsed.ca_cert.is_none());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "API-key file must be owner-only");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_to_reasserts_perms_on_preexisting_loose_file() {
+        let dir = temp_config_dir("loose");
+        let path = dir.join("config.yaml");
+        std::fs::write(&path, "uservoice_api_key: old\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        save_to(&path, &sample("new-key")).expect("save over existing");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "pre-existing 0644 file must be tightened");
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
