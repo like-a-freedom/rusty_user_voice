@@ -172,32 +172,32 @@ impl Settings {
                 .join(CONFIG_FILENAME),
         )
     }
+}
 
-    /// User-level config path: ~/.config/rusty-user-voice/config.yaml
-    /// (login always writes here — never next to the binary).
-    // Task 1 scaffolding: first used by Task 4; the allow is removed there.
-    #[allow(dead_code)]
-    pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
-        Self::config_path_home()
-    }
+/// User-level config path: ~/.config/rusty-user-voice/config.yaml
+/// (login always writes here — never next to the binary).
+// Task 1 scaffolding: first used by Task 4; the allow is removed there.
+#[allow(dead_code)]
+pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
+    Settings::config_path_home()
+}
 
-    /// Binary-dir config path (next to the executable). Exposed read-only so
-    /// login/logout can report that a deployed config shadows the user file.
-    // Task 1 scaffolding: first used by Task 2 (`shadow_note`); the allow is removed in Task 4.
-    #[allow(dead_code)]
-    pub(crate) fn binary_config_path() -> Option<std::path::PathBuf> {
-        Self::config_path()
-    }
+/// Binary-dir config path (next to the executable). Exposed read-only so
+/// login/logout can report that a deployed config shadows the user file.
+// Task 1 scaffolding: first used by Task 2 (`shadow_note`); the allow is removed in Task 4.
+#[allow(dead_code)]
+pub(crate) fn binary_config_path() -> Option<std::path::PathBuf> {
+    Settings::config_path()
+}
 
-    /// Raw user-file read for the `--force` merge (decision 13). `None` when
-    /// the file is absent or unparseable — login then writes a fresh config.
-    // Task 1 scaffolding: first used by Task 4; the allow is removed there.
-    #[allow(dead_code)]
-    pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
-        let path = Self::config_path_home()?;
-        let content = std::fs::read_to_string(&path).ok()?;
-        serde_yaml::from_str(&content).ok()
-    }
+/// Raw user-file read for the `--force` merge (decision 13). `None` when the
+/// file is absent or unparseable — login then writes a fresh config.
+// Task 1 scaffolding: first used by Task 4; the allow is removed there.
+#[allow(dead_code)]
+pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
+    let path = Settings::config_path_home()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    serde_yaml::from_str(&content).ok()
 }
 
 /// Write `cfg` as YAML to an explicit `path`, creating parent dirs. The file

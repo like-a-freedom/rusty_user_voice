@@ -10,6 +10,7 @@ pub mod config;
 pub mod contracts;
 pub mod error;
 pub mod ledger;
+pub mod login;
 pub mod mcp;
 
 pub use app::App;
