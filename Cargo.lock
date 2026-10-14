@@ -1905,7 +1905,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty_user_voice"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2524,7 +2524,7 @@ dependencies = [
 
 [[package]]
 name = "uservoice_client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rand",
