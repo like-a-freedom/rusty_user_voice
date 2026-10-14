@@ -85,6 +85,15 @@ _Avoid_: cursor (for the named, on-disk bundle), session
 The atomic, on-disk directory holding preview JSONL records and idempotency JSON records. Lives under `USERVOICE_STATE_DIR`. Never contains message/note bodies, never contains the API token.
 _Avoid_: state file, log
 
+**Login**:
+The CLI-only first-run authentication flow (`uservoice-cli login`): resolve key
+(stdin > env > TTY prompt) and base URL (login flag > top-level flag > TTY
+prompt) → validate (offline always, `users/current` unless `--no-verify`) →
+save the user config. No MCP tool (ADR-0007); failures are a `CommandError`
+with a stable `reason` token, a copy-pasteable `hint`, and an exit code
+(3 = confirmation_required).
+_Avoid_: auth command, setup wizard, signin, --api-key flag
+
 ## Outcome language
 
 **OK**:
@@ -116,3 +125,10 @@ _Avoid_: one-shot write, atomic write (without the preview gate)
 **Provenance**:
 For feedback imported from non-portal sources: the channel plus the source URL and/or source GUID. Provenance is part of the request to `record_feedback` and a stored attribute on every recorded feedback record.
 _Avoid_: metadata, context
+
+**UserConfig**:
+The user-level `~/.config/rusty-user-voice/config.yaml` written by `login` (mode 0600,
+`logout` deletes it). A `config.yaml` next to the binary takes precedence on load and can
+shadow it — both commands report that via `shadow_warning`. `--force` rewrites only the
+three login-owned keys and preserves the rest.
+_Avoid_: global config, settings.json

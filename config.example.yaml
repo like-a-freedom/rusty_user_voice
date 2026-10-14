@@ -1,4 +1,6 @@
 # uservoice-cli configuration
+# Preferred: run `uservoice-cli login` instead of editing this file by hand.
+# This example remains for Docker/MCP deployments and CI (env vars).
 # Copy this to config.yaml next to the binary or to ~/.config/rusty-user-voice/config.yaml
 # Priority: CLI flags > environment variables > config.yaml > defaults
 

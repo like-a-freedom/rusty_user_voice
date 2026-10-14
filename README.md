@@ -74,7 +74,7 @@ flowchart LR
 
 ## Security
 
-- **Credentials**: `USERVOICE_API_KEY` comes from the process environment or `config.yaml`, never from a CLI flag. The client sends it to UserVoice as an HTTPS bearer token. It never logs the token or puts it in MCP output or local state. `Debug` and `Display` output it as `[REDACTED]`.
+- **Credentials**: `USERVOICE_API_KEY` comes from the process environment or `config.yaml`, never from a CLI flag. The client sends it to UserVoice as an HTTPS bearer token. It never logs the token or puts it in MCP output or local state. `Debug` and `Display` output it as `[REDACTED]`. There is no `--api-key` flag by design; automation passes the key via `USERVOICE_API_KEY` env or `--api-key-stdin` (pipe), and `login` never prints it.
 - **Network**: The client uses HTTPS for `https://<tenant>.uservoice.com/api/v2/admin/...`. It allows HTTP only for loopback hosts in tests.
 - **Writes**: Every write uses preview and apply. Preview returns an opaque `change_id` with a 15-minute TTL. Apply requires `confirmation="apply"` and a caller-generated `idempotency_key`. The ledger prevents a `change_id` from being applied twice.
 - **Local state**: `USERVOICE_STATE_DIR` contains preview records, idempotency hashes, and collection cursors. It contains no tokens, feedback bodies, or email addresses.
@@ -84,11 +84,11 @@ flowchart LR
 
 ## Configuration
 
-The application resolves settings in this order: **CLI flags, environment variables, `config.yaml`, then defaults**.
+The application resolves settings in this order: **CLI flags, environment variables, `config.yaml`, then defaults**. Prefer `uservoice-cli login` over hand-editing secrets.
 
 It checks these config file locations in order:
 1. `config.yaml` next to the binary
-2. `~/.config/rusty-user-voice/config.yaml`
+2. `~/.config/rusty-user-voice/config.yaml` (written by `uservoice-cli login`)
 
 On macOS and Linux:
 
@@ -98,12 +98,34 @@ cp config.example.yaml "$HOME/.config/rusty-user-voice/config.yaml"
 # edit with your values
 ```
 
+### First run (recommended)
+
+```sh
+uservoice-cli login
+# prompts for base URL + API key (hidden input), validates via users/current,
+# saves to ~/.config/rusty-user-voice/config.yaml (mode 0600).
+uservoice-cli workspace --include-catalog
+```
+
+### For AI agents (non-interactive)
+
+```sh
+echo "$USERVOICE_API_KEY" | uservoice-cli login --base-url URL --api-key-stdin --force --output json
+# secret hygiene: there is NO --api-key flag (argv leaks via ps/history).
+# prefer USERVOICE_API_KEY env or --api-key-stdin. exit codes: 0 ok, 2 usage,
+# 3 needs --force, 1 other; in machine mode errors go to stderr as
+# {"ok":false,"reason","detail","hint"} with stable reason (missing_value,
+# confirmation_required, validation_failed, not_logged_in, io_error).
+# stdout stays empty on failure.
+uservoice-cli --output json workspace --include-catalog
+```
+
 ### Environment variables & config keys
 
 | Setting | CLI flag | Env var | Config key | Type | Default | Range / values |
 |---------|----------|----------|-------------|------|---------|----------------|
 | Base URL | `--base-url` | `USERVOICE_BASE_URL` | `uservoice_base_url` | string | **required** | `https://<tenant>.uservoice.com` |
-| API token | not available | `USERVOICE_API_KEY` | `uservoice_api_key` | string | **required** | Bearer token from Admin Console |
+| API token | not available (use `login`) | `USERVOICE_API_KEY` | `uservoice_api_key` | string | **required** | Bearer token from Admin Console |
 | State dir | `--state-dir` | `USERVOICE_STATE_DIR` | `uservoice_state_dir` | path | platform app data dir¹ | writable directory |
 | Max in-flight | `--max-in-flight` | `USERVOICE_MAX_IN_FLIGHT` | `uservoice_max_in_flight` | u32 | `2` | `1` to `8` |
 | Default output | `--output` | `USERVOICE_DEFAULT_OUTPUT` | `default_output` | enum | `human` | `human \| json \| ndjson` |
