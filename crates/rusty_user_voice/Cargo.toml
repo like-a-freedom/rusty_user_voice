@@ -25,6 +25,7 @@ clap.workspace = true
 dirs.workspace = true
 reqwest.workspace = true
 rmcp.workspace = true
+rpassword = "7"
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

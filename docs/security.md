@@ -6,6 +6,10 @@
 - `AccessToken` wraps the token in `Arc<str>` with `Debug`/`Display` redacted to `[REDACTED]`.
 - The token value is only passed to reqwest's `bearer_auth()` call inside `ReqwestUserVoiceClient`.
 - Local credential files such as `.env.test` must have mode `0600` and are sourced by the operator; the tool does not read dotenv files automatically.
+- `uservoice-cli login` accepts the key only via `--api-key-stdin` (pipe) or the TTY
+  prompt; no `--api-key` CLI flag exists (argv is visible in `ps` and shell history).
+  `login`/`logout` are CLI-only and have no MCP tool counterparts. Login output carries
+  only the numeric principal id — never the name or email address.
 
 ## Network boundary
 

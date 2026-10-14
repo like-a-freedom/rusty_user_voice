@@ -34,6 +34,48 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Log in: save API key + base URL to ~/.config/rusty-user-voice/config.yaml.
+    ///
+    /// Prompts for a missing base URL / API key (TTY only, key input hidden).
+    /// Headless and agents: pass --base-url with --api-key-stdin (pipe) or the
+    /// key env var. There is NO --api-key flag (Credential Boundary: argv is
+    /// visible in ps/history). Validates offline always, and via users/current
+    /// unless --no-verify. Refuses to overwrite an existing config without
+    /// --force (exit 3). Exit codes: 0 ok, 2 usage, 3 needs --force, 1 other
+    /// failures.
+    ///
+    /// Examples:
+    ///   uservoice-cli login
+    ///   uservoice-cli login --base-url https://acme.uservoice.com
+    ///   echo "$USERVOICE_API_KEY" | uservoice-cli --output json login --base-url https://acme.uservoice.com --api-key-stdin --force
+    ///   USERVOICE_API_KEY=key123 uservoice-cli login --base-url https://acme.uservoice.com --no-verify
+    Login {
+        /// Base URL (e.g. https://acme.uservoice.com).
+        /// Falls back to the top-level --base-url, then USERVOICE_BASE_URL env, then prompts (TTY only).
+        #[arg(long)]
+        base_url: Option<String>,
+
+        /// Read the API key from stdin (e.g. `echo "$USERVOICE_API_KEY" | uservoice-cli login --api-key-stdin ...`).
+        /// Preferred over env when env is unavailable. There is no --api-key flag by design.
+        #[arg(long)]
+        api_key_stdin: bool,
+
+        /// Path to a custom CA certificate (PEM) for corporate TLS (saved as ca_cert).
+        #[arg(long)]
+        ca_cert: Option<String>,
+
+        /// Overwrite an existing config without error (its non-auth keys are preserved).
+        #[arg(long)]
+        force: bool,
+
+        /// Skip the server call. Local validation (URL, key, ca_cert) still runs.
+        #[arg(long)]
+        no_verify: bool,
+    },
+
+    #[doc = "Log out: delete ~/.config/rusty-user-voice/config.yaml."]
+    Logout {},
+
     Workspace {
         #[arg(long, default_value_t = true)]
         include_catalog: bool,

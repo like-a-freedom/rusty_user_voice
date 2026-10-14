@@ -10,6 +10,7 @@ pub mod config;
 pub mod contracts;
 pub mod error;
 pub mod ledger;
+pub mod login;
 pub mod mcp;
 
 pub use app::App;
@@ -24,6 +25,10 @@ pub use contracts::{
     ToolName, UpdateIdeaParams, WorkspaceContext, WorkspaceContextParams,
 };
 pub use ledger::{DiskChangeLedger, FixedClock, PreviewKind, PreviewRecord};
+pub use login::{
+    CommandError, LoginParams, LoginResult, LogoutResult, NEXT_COMMAND, machine_mode_now,
+    run_login, run_logout,
+};
 pub use mcp::UserVoiceMcpServer;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

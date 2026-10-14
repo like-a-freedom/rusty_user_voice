@@ -175,6 +175,67 @@ fn api_key_is_not_a_cli_argument() {
     );
 }
 
+#[tokio::test]
+async fn login_and_logout_never_reach_the_app_runner() {
+    // `bin/cli.rs` intercepts both auth commands before `Settings` load, so
+    // reaching `run_cli` with them is a wiring bug. The arm below must stay a
+    // clean error, never a silent fallthrough into a workspace call.
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    for args in [
+        vec![
+            "uservoice-cli",
+            "login",
+            "--base-url",
+            "https://acme.uservoice.com",
+            "--no-verify",
+        ],
+        vec!["uservoice-cli", "logout"],
+    ] {
+        let mut output = Vec::new();
+        let error = run_cli(
+            &app,
+            &checkpoints,
+            Cli::try_parse_from(args).expect("CLI"),
+            &mut output,
+        )
+        .await
+        .expect_err("auth commands must not reach the app runner");
+        assert!(
+            error.to_string().contains("intercepted"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[test]
+fn documented_agent_recipe_shape_parses() {
+    // Regression guard for the README / `login --help` agent recipe: `--output`
+    // is a top-level flag and must precede the subcommand. If this shape stops
+    // parsing, the docs and the parser have drifted apart again.
+    let cli = Cli::try_parse_from([
+        "uservoice-cli",
+        "--output",
+        "json",
+        "login",
+        "--base-url",
+        "https://acme.uservoice.com",
+        "--api-key-stdin",
+        "--force",
+    ])
+    .expect("documented recipe must parse");
+    assert_eq!(cli.output, Some(rusty_user_voice::OutputMode::Json));
+    assert!(matches!(
+        cli.command,
+        rusty_user_voice::Command::Login {
+            api_key_stdin: true,
+            force: true,
+            ..
+        }
+    ));
+}
+
 #[test]
 fn collect_parses_ndjson_and_cursor() {
     let cli = Cli::parse_from([

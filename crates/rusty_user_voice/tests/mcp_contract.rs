@@ -225,3 +225,19 @@ fn assert_matches_output_schema(tool: &rmcp::model::Tool, output: serde_json::Va
         "output must match MCP output schema"
     );
 }
+
+/// CLI-only commands with no MCP tool mirror. If a `ToolName` variant ever
+/// appears for one of these, this fails loudly: local secret ops must stay out
+/// of the MCP surface.
+const CLI_ONLY: &[&str] = &["login", "logout"];
+
+#[test]
+fn cli_only_commands_have_no_mcp_tool() {
+    let tool_names: BTreeSet<&str> = ToolName::ALL.iter().map(|t| t.as_str()).collect();
+    for cli_cmd in CLI_ONLY {
+        assert!(
+            !tool_names.contains(*cli_cmd),
+            "CLI-only '{cli_cmd}' must not gain an MCP tool (local secret op)"
+        );
+    }
+}
