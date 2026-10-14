@@ -47,7 +47,7 @@ pub enum Command {
     /// Examples:
     ///   uservoice-cli login
     ///   uservoice-cli login --base-url https://acme.uservoice.com
-    ///   echo "$USERVOICE_API_KEY" | uservoice-cli login --base-url https://acme.uservoice.com --api-key-stdin --output json
+    ///   echo "$USERVOICE_API_KEY" | uservoice-cli --output json login --base-url https://acme.uservoice.com --api-key-stdin --force
     ///   USERVOICE_API_KEY=key123 uservoice-cli login --base-url https://acme.uservoice.com --no-verify
     Login {
         /// Base URL (e.g. https://acme.uservoice.com).

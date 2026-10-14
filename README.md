@@ -110,7 +110,7 @@ uservoice-cli workspace --include-catalog
 ### For AI agents (non-interactive)
 
 ```sh
-echo "$USERVOICE_API_KEY" | uservoice-cli login --base-url URL --api-key-stdin --force --output json
+echo "$USERVOICE_API_KEY" | uservoice-cli --output json login --base-url URL --api-key-stdin --force
 # secret hygiene: there is NO --api-key flag (argv leaks via ps/history).
 # prefer USERVOICE_API_KEY env or --api-key-stdin. exit codes: 0 ok, 2 usage,
 # 3 needs --force, 1 other; in machine mode errors go to stderr as

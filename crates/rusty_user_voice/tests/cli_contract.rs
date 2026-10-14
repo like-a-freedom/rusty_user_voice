@@ -210,6 +210,33 @@ async fn login_and_logout_never_reach_the_app_runner() {
 }
 
 #[test]
+fn documented_agent_recipe_shape_parses() {
+    // Regression guard for the README / `login --help` agent recipe: `--output`
+    // is a top-level flag and must precede the subcommand. If this shape stops
+    // parsing, the docs and the parser have drifted apart again.
+    let cli = Cli::try_parse_from([
+        "uservoice-cli",
+        "--output",
+        "json",
+        "login",
+        "--base-url",
+        "https://acme.uservoice.com",
+        "--api-key-stdin",
+        "--force",
+    ])
+    .expect("documented recipe must parse");
+    assert_eq!(cli.output, Some(rusty_user_voice::OutputMode::Json));
+    assert!(matches!(
+        cli.command,
+        rusty_user_voice::Command::Login {
+            api_key_stdin: true,
+            force: true,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn collect_parses_ndjson_and_cursor() {
     let cli = Cli::parse_from([
         "uservoice-cli",
