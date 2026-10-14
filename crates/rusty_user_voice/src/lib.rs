@@ -25,6 +25,10 @@ pub use contracts::{
     ToolName, UpdateIdeaParams, WorkspaceContext, WorkspaceContextParams,
 };
 pub use ledger::{DiskChangeLedger, FixedClock, PreviewKind, PreviewRecord};
+pub use login::{
+    CommandError, LoginParams, LoginResult, LogoutResult, NEXT_COMMAND, machine_mode_now,
+    run_login, run_logout,
+};
 pub use mcp::UserVoiceMcpServer;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -49,6 +49,17 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
         mode = OutputMode::Ndjson;
     }
     match cli.command {
+        // Unreachable in production: `bin/cli.rs` intercepts both auth
+        // commands before `Settings` load (login must work with no config).
+        // A clean error, never a silent fallthrough. Precedent for the
+        // variant: `AppError::State("mutation ledger is not configured")`
+        // (app/mutate.rs) — a wiring invariant, not user input.
+        Command::Login { .. } | Command::Logout {} => {
+            return Err(AppError::State(
+                "login/logout are intercepted in bin/cli.rs before the app is constructed"
+                    .to_owned(),
+            ));
+        }
         Command::Workspace { include_catalog } => {
             let result = app
                 .workspace_context(WorkspaceContextParams { include_catalog })

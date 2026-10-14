@@ -176,24 +176,18 @@ impl Settings {
 
 /// User-level config path: ~/.config/rusty-user-voice/config.yaml
 /// (login always writes here — never next to the binary).
-// Task 1 scaffolding: first used by Task 4; the allow is removed there.
-#[allow(dead_code)]
 pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
     Settings::config_path_home()
 }
 
 /// Binary-dir config path (next to the executable). Exposed read-only so
 /// login/logout can report that a deployed config shadows the user file.
-// Task 1 scaffolding: first used by Task 2 (`shadow_note`); the allow is removed in Task 4.
-#[allow(dead_code)]
 pub(crate) fn binary_config_path() -> Option<std::path::PathBuf> {
     Settings::config_path()
 }
 
 /// Raw user-file read for the `--force` merge (decision 13). `None` when the
 /// file is absent or unparseable — login then writes a fresh config.
-// Task 1 scaffolding: first used by Task 4; the allow is removed there.
-#[allow(dead_code)]
 pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
     let path = Settings::config_path_home()?;
     let content = std::fs::read_to_string(&path).ok()?;
@@ -203,9 +197,6 @@ pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
 /// Write `cfg` as YAML to an explicit `path`, creating parent dirs. The file
 /// is created 0600 on Unix (the bearer key is a secret) and perms are
 /// re-asserted after the write so a pre-existing 0644 file is tightened too.
-// Task 1 scaffolding: used by unit tests now and by `save_user_config`; the
-// allow covers the non-test build and is removed in Task 4.
-#[allow(dead_code)]
 pub(crate) fn save_to(path: &std::path::Path, cfg: &YamlConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -237,8 +228,6 @@ pub(crate) fn save_to(path: &std::path::Path, cfg: &YamlConfig) -> Result<(), St
 
 /// Serialize `cfg` to the user config path. Overwrites unconditionally —
 /// the caller (login) owns the --force guard.
-// Task 1 scaffolding: first used by Task 4; the allow is removed there.
-#[allow(dead_code)]
 pub(crate) fn save_user_config(cfg: &YamlConfig) -> Result<std::path::PathBuf, String> {
     let path = Settings::config_path_home()
         .ok_or_else(|| "cannot resolve home directory for config save".to_string())?;
