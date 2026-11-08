@@ -37,6 +37,11 @@ impl ReqwestUserVoiceClient {
     pub fn new(endpoint: ApiEndpoint, token: AccessToken) -> Result<Self, ClientError> {
         let http = Client::builder()
             .user_agent(concat!("rusty-user-voice/", env!("CARGO_PKG_VERSION")))
+            // The validated endpoint host is the network boundary
+            // (docs/security.md): never follow redirects, so no request (or
+            // 307/308 POST body) can be re-targeted at another host. A 3xx
+            // surfaces to `decode` as an HTTP status error.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(ClientError::Transport)?;
         Ok(Self {

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-08
+
+### Fixed
+
+- HTTP clients no longer follow redirects: a 3xx from the API now surfaces as an error instead of re-sending the request (path, query, and for 307/308 the POST body) to an arbitrary host, enforcing the network boundary documented in `docs/security.md`.
+
 ## [0.2.0] - 2026-10-14
 
 Adds `uservoice-cli login` / `logout` as the primary, agent-drivable authentication path. Prebuilt binaries land on the release; no existing config or MCP client behaviour changes.

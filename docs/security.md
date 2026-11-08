@@ -15,6 +15,7 @@
 
 - Outbound calls use TLS to `https://<tenant>.uservoice.com/api/v2/admin/...`.
 - HTTP is permitted only for loopback hosts (127.0.0.1, localhost, ::1) in test mode.
+- Redirects are never followed: the production HTTP clients use `redirect::Policy::none()`, so every call stays on the validated endpoint host and a 3xx response surfaces as an HTTP status error instead of re-targeting a request (or POST body) at another host.
 - MCP transport is stdio only. No inbound HTTP server, OAuth callback, or browser automation.
 - Corporate SSO, SAML assertions, RuToken, and browser session cookies are never accessed.
 
