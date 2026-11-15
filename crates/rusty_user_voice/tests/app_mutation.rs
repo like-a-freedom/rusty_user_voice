@@ -99,6 +99,54 @@ async fn apply_rejects_stale_preview_before_any_write() {
 }
 
 #[tokio::test]
+async fn a_second_apply_under_a_different_key_is_rejected_by_the_freshness_check() {
+    // The at-most-once guarantee belongs to the Idempotency Key, not to the
+    // Change ID. Replaying the same key writes once. A second apply under a
+    // new key is stopped by the freshness check, because the first write
+    // moved the Idea. The skill corpus documents exactly this.
+    let (_directory, api, app) = mutation_app();
+    let preview_params = UpdateIdeaParams::preview(
+        IdeaId::new(101),
+        Some("Clearer export title".to_owned()),
+        vec![LabelId::new(14)],
+    );
+    let preview = app
+        .update_idea(preview_params.clone())
+        .await
+        .expect("preview");
+    let change_id = preview.data.change_id.expect("change id");
+
+    app.update_idea(UpdateIdeaParams::apply_from_preview(
+        &preview_params,
+        change_id,
+        "apply",
+        "agent-run-20260724-key-a",
+    ))
+    .await
+    .expect("first apply");
+    let writes_after_first = api.recorded_writes().len();
+
+    // The upstream write moved updated_at, as a real API does.
+    api.advance_suggestion_updated_at();
+
+    let second = app
+        .update_idea(UpdateIdeaParams::apply_from_preview(
+            &preview_params,
+            change_id,
+            "apply",
+            "agent-run-20260724-key-b",
+        ))
+        .await
+        .expect_err("a second apply under a new key must be rejected");
+    assert!(second.to_string().contains("changed since preview"));
+    assert_eq!(
+        api.recorded_writes().len(),
+        writes_after_first,
+        "the rejected apply must not write"
+    );
+}
+
+#[tokio::test]
 async fn partial_write_is_completed_in_ledger_and_never_compensated_or_retried() {
     let (_directory, api, app) = mutation_app();
     api.fail_write_number(2);

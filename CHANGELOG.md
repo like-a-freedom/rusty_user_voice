@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `uservoice-cli skills` serves the agent-facing instructions compiled into the binary. `skills get core` prints the guide, `skills get core --ref <path>` loads one reference on demand, and `skills list` shows what is bundled. The text always matches the installed version, and the command needs no credentials, so it works before `login`.
+- The corpus lives in `crates/rusty_user_voice/skills/`: the always-loaded `core` guide, five references (`cli`, `mcp-tools`, `pagination`, `errors`, `envelope`), and the specialized `triage` and `feedback-loop` workflows.
+- `docs/agents/skills.md` states the maintenance contract, and `crates/rusty_user_voice/tests/skills_contract.rs` enforces it: a change to a flag, a tool, a reason token, or an envelope status that does not update the corpus fails the build.
+
+### Changed
+
+- `skills/uservoice-pm/SKILL.md` is now a stub pointing at `uservoice-cli skills get core`. Its `references/` files moved into the binary, and `skills/uservoice-pm/references/` is gone.
+- The CLI help lists every command with a description. `workspace`, `ideas`, and `feedback` had blank descriptions before.
+
+### Internal
+
+- `CommandError` moved from `login.rs` to `cli_error.rs`, with the reason tokens as named constants and a `COMMAND_REASONS` slice. The public shape is unchanged.
+- `OutputMode::resolve` is the single owner of the output-mode precedence (flag, then `USERVOICE_DEFAULT_OUTPUT`, then `default_output` in `config.yaml`, then human). `login`, `logout`, and `skills` share it.
+
 ## [0.2.3] - 2026-11-08
 
 ### Changed

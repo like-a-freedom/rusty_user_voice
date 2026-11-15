@@ -198,7 +198,7 @@ uservoice-cli --output ndjson ideas collect \
   --query osmp
 ```
 
-> **Pagination and cursors:** See [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md) for page and cursor behavior, `--all` streaming, and checkpoints.
+> **Pagination and cursors:** See [`crates/rusty_user_voice/skills/core/references/pagination.md`](crates/rusty_user_voice/skills/core/references/pagination.md) for page and cursor behavior, `--all` streaming, and checkpoints.
 
 ### Preview and apply changes
 ```bash
@@ -246,6 +246,20 @@ uservoice-cli --output json feedback record \
 ```
 
 Available feedback channels: `admin`, `api`, `bookmarklet`, `gainsight`, `import`, `portal`, `roadmap`, `slack`, and `zendesk`. See [`cli.rs:265-292`](crates/rusty_user_voice/src/cli.rs#L265-L292).
+
+### Read the agent-facing instructions
+
+The CLI ships the instructions an agent needs, compiled into the binary. The text always matches the installed version.
+
+```bash
+uservoice-cli skills list                       # names, descriptions, reference counts
+uservoice-cli skills get core                   # the guide: read loop, write loop, safety rules
+uservoice-cli skills get core --ref cli.md      # one reference on demand
+uservoice-cli skills get core --full            # the guide and all of its references
+uservoice-cli skills get --all                  # the whole corpus
+```
+
+`skills` needs no credentials, so it works before `uservoice-cli login`. The corpus is layered: `core` is the always-loaded guide, `triage` and `feedback-loop` are specialized workflows, and the rest are references loaded one topic at a time. See [`docs/agents/skills.md`](docs/agents/skills.md) for the authoring rules and the maintenance contract.
 
 ---
 
@@ -339,9 +353,13 @@ Before opening a pull request:
 | Architecture Decision Records | [`docs/adr/`](docs/adr/) |
 | Security model details | [`docs/security.md`](docs/security.md) |
 | UserVoice API surface map | [`docs/uservoice-api-map.md`](docs/uservoice-api-map.md) |
-| Pagination, cursors, checkpoints | [`skills/uservoice-pm/references/pagination.md`](skills/uservoice-pm/references/pagination.md) |
-| Idea triage workflow | [`skills/uservoice-pm/references/triage-ideas.md`](skills/uservoice-pm/references/triage-ideas.md) |
-| Close-the-loop feedback workflow | [`skills/uservoice-pm/references/close-feedback-loop.md`](skills/uservoice-pm/references/close-feedback-loop.md) |
+| Agent-facing instructions | [`crates/rusty_user_voice/skills/core/SKILL.md`](crates/rusty_user_voice/skills/core/SKILL.md) |
+| Pagination, cursors, checkpoints | [`crates/rusty_user_voice/skills/core/references/pagination.md`](crates/rusty_user_voice/skills/core/references/pagination.md) |
+| CLI reference | [`crates/rusty_user_voice/skills/core/references/cli.md`](crates/rusty_user_voice/skills/core/references/cli.md) |
+| MCP tool reference | [`crates/rusty_user_voice/skills/core/references/mcp-tools.md`](crates/rusty_user_voice/skills/core/references/mcp-tools.md) |
+| Error vocabulary | [`crates/rusty_user_voice/skills/core/references/errors.md`](crates/rusty_user_voice/skills/core/references/errors.md) |
+| Idea triage workflow | [`crates/rusty_user_voice/skills/triage/SKILL.md`](crates/rusty_user_voice/skills/triage/SKILL.md) |
+| Close-the-loop feedback workflow | [`crates/rusty_user_voice/skills/feedback-loop/SKILL.md`](crates/rusty_user_voice/skills/feedback-loop/SKILL.md) |
 | CLI argument definitions | [`crates/rusty_user_voice/src/cli.rs`](crates/rusty_user_voice/src/cli.rs) |
 | Config loading & precedence | [`crates/rusty_user_voice/src/config.rs`](crates/rusty_user_voice/src/config.rs) |
 | MCP tool definitions | [`crates/rusty_user_voice/src/mcp.rs`](crates/rusty_user_voice/src/mcp.rs) |

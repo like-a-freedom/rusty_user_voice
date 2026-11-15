@@ -5,6 +5,7 @@ pub mod app;
 pub mod bootstrap;
 pub mod checkpoint;
 pub mod cli;
+pub mod cli_error;
 pub mod cli_runner;
 pub mod config;
 pub mod contracts;
@@ -12,11 +13,14 @@ pub mod error;
 pub mod ledger;
 pub mod login;
 pub mod mcp;
+pub mod skills;
+pub mod skills_cli;
 
 pub use app::App;
 pub use app::feedback::FeedbackRecordResult;
 pub use checkpoint::{Checkpoint, CheckpointStore};
-pub use cli::{Cli, Command, IdeasCommand, OutputMode};
+pub use cli::{Cli, Command, IdeasCommand, OutputMode, SkillsCommand};
+pub use cli_error::{COMMAND_REASONS, CommandError};
 pub use config::Settings;
 pub use contracts::{
     AppliedOperation, ChangeId, CollectIdeasParams, DetailLevel, Envelope, FeedbackChannel,
@@ -26,8 +30,7 @@ pub use contracts::{
 };
 pub use ledger::{DiskChangeLedger, FixedClock, PreviewKind, PreviewRecord};
 pub use login::{
-    CommandError, LoginParams, LoginResult, LogoutResult, NEXT_COMMAND, machine_mode_now,
-    run_login, run_logout,
+    LoginParams, LoginResult, LogoutResult, NEXT_COMMAND, machine_mode_now, run_login, run_logout,
 };
 pub use mcp::UserVoiceMcpServer;
 

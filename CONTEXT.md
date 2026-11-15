@@ -59,7 +59,7 @@ An MCP-exposed callable. Seven tools exist: `workspace_context`, `search_ideas`,
 _Avoid_: endpoint, command (when speaking about MCP)
 
 **Intent**:
-What an agent is trying to accomplish ("close the feedback loop", "triage ideas"). One intent may map to one tool or to a small ordered sequence of tools (preview → apply). Defined in the `uservoice-pm` skill, not in this repo.
+What an agent is trying to accomplish ("close the feedback loop", "triage ideas"). One intent may map to one tool or to a small ordered sequence of tools (preview → apply). Defined in the built-in skills served by `uservoice-cli skills`, not in the code.
 _Avoid_: workflow, recipe
 
 **Preview**:
@@ -71,7 +71,7 @@ Opaque token returned by a successful preview. Its lifetime is the preview TTL; 
 _Avoid_: request ID, transaction ID
 
 **Apply**:
-The execution step that consumes a `change_id` and performs the upstream write. Exactly once per change_id (the ledger rejects second applies).
+The execution step that consumes a `change_id` and performs the upstream write. At most once per Idempotency Key: the same key with the same payload replays the recorded result, and the same key with a different payload is a Conflict. A `change_id` alone does not stop a second apply under a different key; the freshness check rejects it, because the first write moved the Idea.
 
 **Idempotency Key**:
 Caller-chosen string that prevents duplicate side-effects on retry. Same key + identical payload replays the recorded result; same key + different payload is a `Conflict`. Different keys are independent.
@@ -132,3 +132,19 @@ The user-level `~/.config/rusty-user-voice/config.yaml` written by `login` (mode
 shadow it — both commands report that via `shadow_warning`. `--force` rewrites only the
 three login-owned keys and preserves the rest.
 _Avoid_: global config, settings.json
+
+**Skill**:
+Agent-facing instructions for one workflow, compiled into the binary and served by
+`uservoice-cli skills get <name>`. A skill is one document plus the references it
+owns. The text always matches the installed binary.
+_Avoid_: guide, manual, prompt
+
+**Skill Reference**:
+A subordinate document a skill loads on demand, reached through
+`uservoice-cli skills get <name> --ref <path>`. Each reference covers one topic.
+_Avoid_: appendix, attachment
+
+**Skill Catalog**:
+The set of skills bundled into a binary, listed by `uservoice-cli skills list`. The
+catalog is a build artifact: `crates/rusty_user_voice/skills/` is its source of truth.
+_Avoid_: registry, plugin list

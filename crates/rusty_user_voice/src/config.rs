@@ -186,6 +186,14 @@ pub(crate) fn binary_config_path() -> Option<std::path::PathBuf> {
     Settings::config_path()
 }
 
+/// The `default_output` of the effective config file, read without loading
+/// credentials: the binary-dir file first, then the user file, exactly like
+/// [`Settings::from_sources`]. Used by the commands that run before the
+/// settings load (`login`, `logout`, `skills`).
+pub(crate) fn config_default_output() -> Option<String> {
+    Settings::load_yaml().and_then(|config| config.default_output)
+}
+
 /// Raw user-file read for the `--force` merge (decision 13). `None` when the
 /// file is absent or unparseable — login then writes a fresh config.
 pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {

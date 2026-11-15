@@ -13,6 +13,51 @@ pub enum OutputMode {
     Ndjson,
 }
 
+impl OutputMode {
+    /// Resolve the effective output mode: explicit flag, then the
+    /// `USERVOICE_DEFAULT_OUTPUT` environment variable, then `default_output`
+    /// in `config.yaml`, then human.
+    ///
+    /// Every command that runs before [`crate::Settings::from_sources`] needs
+    /// this: `login`, `logout`, and `skills` all work without credentials, so
+    /// they cannot load the settings first.
+    pub fn resolve(
+        flag: Option<OutputMode>,
+        env_default: Option<String>,
+        config_default: Option<String>,
+    ) -> OutputMode {
+        if let Some(mode) = flag {
+            return mode;
+        }
+        let named = |value: &str| match value {
+            "json" => Some(OutputMode::Json),
+            "ndjson" => Some(OutputMode::Ndjson),
+            _ => Some(OutputMode::Human),
+        };
+        env_default
+            .as_deref()
+            .and_then(named)
+            .or_else(|| config_default.as_deref().and_then(named))
+            .unwrap_or(OutputMode::Human)
+    }
+
+    /// Read the environment and the config file, then resolve the mode.
+    pub fn resolve_now(flag: Option<OutputMode>) -> OutputMode {
+        OutputMode::resolve(
+            flag,
+            std::env::var("USERVOICE_DEFAULT_OUTPUT")
+                .ok()
+                .filter(|value| !value.is_empty()),
+            crate::config::config_default_output(),
+        )
+    }
+
+    /// Whether the mode produces machine-readable output.
+    pub fn is_machine(self) -> bool {
+        matches!(self, OutputMode::Json | OutputMode::Ndjson)
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "uservoice-cli", version, about = "Local UserVoice PM CLI")]
 pub struct Cli {
@@ -45,12 +90,15 @@ pub enum Command {
     /// failures.
     ///
     /// Examples:
-    ///   uservoice-cli login
-    ///   uservoice-cli login --base-url https://acme.uservoice.com
-    ///   echo "$USERVOICE_API_KEY" | uservoice-cli --output json login --base-url https://acme.uservoice.com --api-key-stdin --force
-    ///   USERVOICE_API_KEY=key123 uservoice-cli login --base-url https://acme.uservoice.com --no-verify
+    ///
+    /// ```text
+    /// uservoice-cli login
+    /// uservoice-cli login --base-url https://acme.uservoice.com
+    /// echo "$USERVOICE_API_KEY" | uservoice-cli --output json login --base-url https://acme.uservoice.com --api-key-stdin --force
+    /// USERVOICE_API_KEY=key123 uservoice-cli login --base-url https://acme.uservoice.com --no-verify
+    /// ```
     Login {
-        /// Base URL (e.g. https://acme.uservoice.com).
+        /// Base URL (e.g. `https://acme.uservoice.com`).
         /// Falls back to the top-level --base-url, then USERVOICE_BASE_URL env, then prompts (TTY only).
         #[arg(long)]
         base_url: Option<String>,
@@ -76,32 +124,79 @@ pub enum Command {
     #[doc = "Log out: delete ~/.config/rusty-user-voice/config.yaml."]
     Logout {},
 
+    /// Workspace context: the principal, the taxonomy, and the rate-limit envelope.
+    ///
+    /// Start here. Every Forum, Category, Status, and Label ID used later comes
+    /// from this call.
     Workspace {
+        /// Also load Forums, Categories, Statuses, and Labels.
         #[arg(long, default_value_t = true)]
         include_catalog: bool,
     },
+    /// Idea workflows: search, read, collect, update, publish.
     Ideas {
         #[command(subcommand)]
         command: Box<IdeasCommand>,
     },
+    /// Inbound feedback: record it with the channel and provenance it came from.
     Feedback {
         #[command(subcommand)]
         command: Box<FeedbackCommand>,
+    },
+
+    /// Agent-facing instructions compiled into this binary.
+    ///
+    /// The text always matches the installed version. Needs no credentials, so
+    /// it works before `login`.
+    Skills {
+        #[command(subcommand)]
+        command: Box<SkillsCommand>,
     },
 }
 
 #[derive(Debug, Subcommand)]
 pub enum IdeasCommand {
+    /// Find Ideas by text, time window, or taxonomy.
     Search(SearchArgs),
+    /// Load one Idea with its full discussion.
     Get(GetArgs),
+    /// Collect one resumable page of Ideas updated in a time window.
     Collect(CollectArgs),
+    /// Change an Idea. Preview first, then apply.
     Update(UpdateArgs),
+    /// Publish a Status Update to the Supporters. Preview first, then apply.
     Publish(PublishArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum FeedbackCommand {
+    /// Record one inbound Feedback Record with its provenance.
     Record(RecordFeedbackArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillsCommand {
+    /// List the bundled skills with a one-line description of each.
+    ///
+    /// Use the global --output json for a machine-readable list.
+    List {},
+    /// Print a skill, one of its references, or the whole corpus.
+    Get {
+        /// Skill name. Omit it together with --all.
+        name: Option<String>,
+
+        /// Print the skill and all of its references.
+        #[arg(long, conflicts_with = "reference")]
+        full: bool,
+
+        /// Print one reference of the skill, for example `cli.md`.
+        #[arg(long = "ref", value_name = "PATH")]
+        reference: Option<String>,
+
+        /// Print every bundled skill.
+        #[arg(long, conflicts_with_all = ["name", "full", "reference"])]
+        all: bool,
+    },
 }
 
 #[derive(Debug, Args)]

@@ -3,12 +3,25 @@ use clap::Parser;
 use rusty_user_voice::{
     CheckpointStore, Cli, Command, LoginParams, NEXT_COMMAND, OutputMode, Settings,
     bootstrap::build_app, cli_runner::run_cli, init_tracing, machine_mode_now, run_login,
-    run_logout,
+    run_logout, skills_cli,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // The skill corpus is compiled into the binary and needs no credentials,
+    // so it is served before `Settings::from_sources`. That load fails
+    // exactly when login is needed, and the guide has to be readable before
+    // login.
+    if let Command::Skills { command } = &cli.command {
+        let mode = OutputMode::resolve_now(cli.output);
+        let mut stdout = std::io::stdout().lock();
+        if let Err(error) = skills_cli::run_skills(command, mode, &mut stdout) {
+            error.report(mode.is_machine());
+        }
+        return Ok(());
+    }
 
     // Auth commands run before `Settings::from_sources`: settings load fails
     // exactly when login is needed (no key/URL yet). Borrow + clone so the

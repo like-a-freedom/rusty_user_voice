@@ -60,6 +60,11 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
                     .to_owned(),
             ));
         }
+        Command::Skills { .. } => {
+            return Err(AppError::State(
+                "skills are served in bin/cli.rs before the app is constructed".to_owned(),
+            ));
+        }
         Command::Workspace { include_catalog } => {
             let result = app
                 .workspace_context(WorkspaceContextParams { include_catalog })

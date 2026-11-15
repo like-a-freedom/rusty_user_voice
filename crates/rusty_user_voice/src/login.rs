@@ -12,58 +12,14 @@
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use crate::cli::OutputMode;
-use crate::config::{binary_config_path, load_user_config_raw};
-
-/// Classified, machine-readable failure for login/logout. `reason` is a stable
-/// token agents branch on (`missing_value`, `confirmation_required`,
-/// `validation_failed`, `not_logged_in`, `io_error`); `hint` is a
-/// copy-pasteable fix. Reported on stderr (JSON envelope in machine mode,
-/// `Error:`/`Hint:` prose otherwise); stdout stays empty.
-#[derive(Debug, Clone)]
-pub struct CommandError {
-    pub reason: &'static str,
-    pub detail: String,
-    pub hint: String,
-    pub exit_code: i32,
-}
-
-impl CommandError {
-    /// Exit-code contract: 3 = confirmation_required (re-run with --force),
-    /// 1 = everything else. clap owns 2 (usage errors).
-    pub fn new(reason: &'static str, detail: String, hint: String) -> Self {
-        let exit_code = match reason {
-            "confirmation_required" => 3,
-            _ => 1,
-        };
-        Self {
-            reason,
-            detail,
-            hint,
-            exit_code,
-        }
-    }
-
-    pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "ok": false,
-            "reason": self.reason,
-            "detail": self.detail,
-            "hint": self.hint,
-        })
-    }
-
-    /// Print to stderr (payloads stay on stdout) and exit. Never returns.
-    pub fn report(self, machine: bool) -> ! {
-        if machine {
-            eprintln!("{}", self.to_json());
-        } else {
-            eprintln!("Error: {}", self.detail);
-            eprintln!("Hint: {}", self.hint);
-        }
-        std::process::exit(self.exit_code);
-    }
-}
+use crate::config::binary_config_path;
+use crate::{
+    cli::OutputMode,
+    cli_error::{
+        CommandError, REASON_CONFIRMATION_REQUIRED, REASON_IO_ERROR, REASON_MISSING_VALUE,
+        REASON_NOT_LOGGED_IN, REASON_VALIDATION_FAILED,
+    },
+};
 
 /// Pure merge for one login run. Env values are parameters (the caller reads
 /// env), so this stays side-effect free and unit-testable.
@@ -89,31 +45,21 @@ pub fn resolve_login_inputs(
 /// default_output` > human). Login is intercepted before
 /// `Settings::from_sources`, so it must resolve the mode itself — otherwise a
 /// `default_output: json` user gets prose errors from an agent-driven command.
+///
+/// The rule itself lives in [`OutputMode::resolve`]; this wrapper keeps the
+/// boolean the login flow needs.
 pub fn resolve_machine_mode(
     flag: Option<OutputMode>,
     env_default: Option<String>,
     config_default: Option<String>,
 ) -> bool {
-    let named = |value: &str| matches!(value, "json" | "ndjson");
-    match flag {
-        Some(mode) => mode != OutputMode::Human,
-        None => env_default
-            .as_deref()
-            .or(config_default.as_deref())
-            .is_some_and(named),
-    }
+    OutputMode::resolve(flag, env_default, config_default).is_machine()
 }
 
 /// IO wrapper around [`resolve_machine_mode`]: reads env + the user config.
 /// Kept separate from the pure resolver so the precedence stays unit-tested.
 pub fn machine_mode_now(flag: Option<OutputMode>) -> bool {
-    resolve_machine_mode(
-        flag,
-        std::env::var("USERVOICE_DEFAULT_OUTPUT")
-            .ok()
-            .filter(|value| !value.is_empty()),
-        load_user_config_raw().and_then(|cfg| cfg.default_output),
-    )
+    OutputMode::resolve_now(flag).is_machine()
 }
 
 /// Trim an input and reject blanks — the single place where "empty means
@@ -238,7 +184,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
         && !params.force
     {
         return Err(CommandError::new(
-            "confirmation_required",
+            REASON_CONFIRMATION_REQUIRED,
             format!(
                 "config already exists at {} — not overwritten",
                 path.display()
@@ -252,7 +198,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
     let stdin_token = if params.key_stdin {
         Some(
             read_key_stdin()
-                .map_err(|d| CommandError::new("missing_value", d, NON_TTY_HINT.to_owned()))?,
+                .map_err(|d| CommandError::new(REASON_MISSING_VALUE, d, NON_TTY_HINT.to_owned()))?,
         )
     } else {
         None
@@ -268,25 +214,25 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
         Some(value) if !value.trim().is_empty() => value.trim().to_owned(),
         _ if !interactive => {
             return Err(CommandError::new(
-                "missing_value",
+                REASON_MISSING_VALUE,
                 "base URL is required".to_owned(),
                 URL_HINT.to_owned(),
             ));
         }
         _ => prompt_line("UserVoice base URL (e.g. https://acme.uservoice.com)")
-            .map_err(|d| CommandError::new("io_error", d, NON_TTY_HINT.to_owned()))?,
+            .map_err(|d| CommandError::new(REASON_IO_ERROR, d, NON_TTY_HINT.to_owned()))?,
     };
     let key = match token {
         Some(value) if !value.trim().is_empty() => value.trim().to_owned(),
         _ if !interactive => {
             return Err(CommandError::new(
-                "missing_value",
+                REASON_MISSING_VALUE,
                 "API key is required".to_owned(),
                 KEY_HINT.to_owned(),
             ));
         }
         _ => prompt_password("UserVoice API key (input hidden)")
-            .map_err(|d| CommandError::new("io_error", d, NON_TTY_HINT.to_owned()))?,
+            .map_err(|d| CommandError::new(REASON_IO_ERROR, d, NON_TTY_HINT.to_owned()))?,
     };
 
     // 3. Offline validation ALWAYS: endpoint shape, key, and CA cert must be
@@ -294,28 +240,28 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
     //    first real command.
     let endpoint = ApiEndpoint::parse(&url).map_err(|e| {
         CommandError::new(
-            "validation_failed",
+            REASON_VALIDATION_FAILED,
             format!("invalid base URL {url}: {e} (not saved)"),
             "pass a tenant root such as https://acme.uservoice.com, then re-run login".to_owned(),
         )
     })?;
     let access = AccessToken::parse(key.clone()).map_err(|e| {
         CommandError::new(
-            "validation_failed",
+            REASON_VALIDATION_FAILED,
             format!("invalid API key (not saved): {e}"),
             "check the key, then re-run login".to_owned(),
         )
     })?;
     let http = build_http_client(params.ca_cert.as_deref()).map_err(|e| {
         CommandError::new(
-            "validation_failed",
+            REASON_VALIDATION_FAILED,
             format!("cannot build HTTP client (not saved): {e}"),
             "check the --ca-cert path, then re-run login".to_owned(),
         )
     })?;
     let client = ReqwestUserVoiceClient::from_http_client(http, endpoint, access).map_err(|e| {
         CommandError::new(
-            "validation_failed",
+            REASON_VALIDATION_FAILED,
             format!("cannot build client for {url} (not saved): {e}"),
             "check the base URL, then re-run login".to_owned(),
         )
@@ -328,7 +274,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
     if !params.no_verify {
         let me = client.current_user().await.map_err(|e| {
             CommandError::new(
-                "validation_failed",
+                REASON_VALIDATION_FAILED,
                 format!("validation failed for {url}: {e} (not saved)"),
                 "check the base URL and API key, then re-run login (or add --no-verify to save without the server call)"
                     .to_owned(),
@@ -356,7 +302,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
     };
     let config_path = save_user_config(&yaml).map_err(|d| {
         CommandError::new(
-            "io_error",
+            REASON_IO_ERROR,
             d,
             "check permissions on ~/.config/rusty-user-voice".to_owned(),
         )
@@ -378,21 +324,21 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
 
     let path = user_config_path().ok_or_else(|| {
         CommandError::new(
-            "io_error",
+            REASON_IO_ERROR,
             "cannot resolve home directory".to_owned(),
             "set HOME and re-run logout".to_owned(),
         )
     })?;
     if !path.exists() {
         return Err(CommandError::new(
-            "not_logged_in",
+            REASON_NOT_LOGGED_IN,
             "not logged in (no config file found)".to_owned(),
             "run `uservoice-cli login` first".to_owned(),
         ));
     }
     std::fs::remove_file(&path).map_err(|d| {
         CommandError::new(
-            "io_error",
+            REASON_IO_ERROR,
             format!("cannot remove {}: {d}", path.display()),
             "check permissions on ~/.config/rusty-user-voice".to_owned(),
         )
@@ -478,34 +424,5 @@ mod tests {
         let err = required("   ".to_owned(), "API key").unwrap_err();
         assert!(err.contains("API key"));
         assert!(err.contains("required"));
-    }
-
-    #[test]
-    fn command_error_exit_codes() {
-        let guard = CommandError::new("confirmation_required", "d".to_owned(), "h".to_owned());
-        assert_eq!(guard.exit_code, 3);
-        for reason in [
-            "missing_value",
-            "validation_failed",
-            "not_logged_in",
-            "io_error",
-        ] {
-            let e = CommandError::new(reason, "d".to_owned(), "h".to_owned());
-            assert_eq!(e.exit_code, 1, "reason {reason} must exit 1");
-        }
-    }
-
-    #[test]
-    fn command_error_json_envelope_shape() {
-        let e = CommandError::new(
-            "missing_value",
-            "API key is required".to_owned(),
-            "hint-cmd".to_owned(),
-        );
-        let v = e.to_json();
-        assert_eq!(v["ok"].as_bool(), Some(false));
-        assert_eq!(v["reason"], "missing_value");
-        assert_eq!(v["detail"], "API key is required");
-        assert_eq!(v["hint"], "hint-cmd");
     }
 }
