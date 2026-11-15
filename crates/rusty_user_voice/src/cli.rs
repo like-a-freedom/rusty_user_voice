@@ -449,3 +449,50 @@ pub struct RecordFeedbackArgs {
     #[arg(long)]
     pub idempotency_key: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::OutputMode;
+
+    #[test]
+    fn the_explicit_flag_wins_over_the_environment_and_the_config() {
+        let mode = OutputMode::resolve(
+            Some(OutputMode::Ndjson),
+            Some("human".to_owned()),
+            Some("human".to_owned()),
+        );
+        assert!(mode.is_machine());
+    }
+
+    #[test]
+    fn the_environment_wins_over_the_config() {
+        let mode = OutputMode::resolve(None, Some("json".to_owned()), Some("human".to_owned()));
+        assert_eq!(mode, OutputMode::Json);
+        let mode = OutputMode::resolve(None, None, Some("json".to_owned()));
+        assert_eq!(mode, OutputMode::Json);
+    }
+
+    #[test]
+    fn human_and_unknown_values_are_prose() {
+        assert_eq!(
+            OutputMode::resolve(Some(OutputMode::Human), None, None),
+            OutputMode::Human
+        );
+        assert_eq!(
+            OutputMode::resolve(None, Some("human".to_owned()), None),
+            OutputMode::Human
+        );
+        assert_eq!(
+            OutputMode::resolve(None, None, Some("nonsense".to_owned())),
+            OutputMode::Human
+        );
+        assert_eq!(OutputMode::resolve(None, None, None), OutputMode::Human);
+    }
+
+    #[test]
+    fn only_json_and_ndjson_are_machine_modes() {
+        assert!(OutputMode::Json.is_machine());
+        assert!(OutputMode::Ndjson.is_machine());
+        assert!(!OutputMode::Human.is_machine());
+    }
+}

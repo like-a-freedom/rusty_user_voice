@@ -34,9 +34,11 @@ Inside the crate, packaging, installing, and vendoring all carry the corpus with
 
 The corpus is split by progressive disclosure. `core` is the always-loaded layer: the read loop, the write loop, safety rules, the error vocabulary, and a map of what to load next. `triage` and `feedback-loop` are separate tasks. `cli`, `mcp-tools`, `pagination`, `errors`, and `envelope` are references, one loaded at a time.
 
-The corpus is verified against the code on every CI run. Flags are reflected out of the clap tree, tool names come from `ToolName::ALL`, statuses from `OutcomeStatus`, reason tokens from named constants. A change that moves the contract without moving the corpus fails the build.
+The corpus is verified against the code on every CI run. Flags are reflected out of the clap tree, tool names come from `ToolName::ALL`, statuses from `OutcomeStatus`, reason tokens from named constants, envelope fields from the schema. A change that moves the contract without moving the corpus fails the build.
 
-Verification is not limited to the surface. The corpus may only claim what the code guarantees. One claim was wrong: "a Change ID is spent once, and the ledger rejects a second apply". The ledger keys idempotency on the Idempotency Key, and a Change ID alone stops nothing. A second apply under a different key runs again unless the freshness check catches it, which it does only because the first write moved the Idea. The corpus says that instead, and `tests/app_mutation.rs` pins the behavior.
+Verification is not limited to the surface. The corpus may only claim what the code guarantees. Two claims were wrong: "a Change ID is spent once, and the ledger rejects a second apply", and a `--notify-supporters true` that the argument parser rejects. The ledger keys idempotency on the Idempotency Key, and a Change ID alone stops nothing; a second apply under a different key runs again unless the freshness check catches it, which it does only because the first write moved the Idea. The corpus says that instead, and `tests/app_mutation.rs` pins the behavior. The command test parses every `uservoice-cli` line in the corpus through the argument parser, so a command the CLI rejects fails CI.
+
+The corpus layout is validated by the build script. A file that is neither `<skill>/SKILL.md` nor `<skill>/references/*.md`, or a skill directory without a `SKILL.md`, fails the build, where the message names the file. The runtime never panics on a malformed corpus: it skips what it does not recognise, because a crash in `skills list` would take down the command for every user of the installed binary.
 
 `skills` is intercepted before `Settings::from_sources`, because settings load fails without credentials and the guide has to be readable before login.
 
@@ -54,7 +56,7 @@ Verification is not limited to the surface. The corpus may only claim what the c
 
 ## Consequences
 
-`build.rs` becomes the first build script in the workspace. It discovers skill files and writes a generated table; it fails the build when the corpus directory is missing, so a stripped checkout cannot silently produce a binary without instructions.
+`build.rs` becomes the first build script in the workspace. It discovers skill files and writes a generated table. It watches the corpus directory, so a newly added reference triggers a rebuild instead of being silently left out. It fails the build when the corpus directory is missing, when a file sits outside the expected layout, or when a skill has no document, so a stripped or malformed checkout cannot silently produce a binary without instructions.
 
 `crates/rusty_user_voice/src/skills.rs` owns the catalog and the lookup. `App` gains no skill method: skills describe the surface of the CLI, not the domain of UserVoice.
 

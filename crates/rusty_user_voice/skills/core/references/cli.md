@@ -18,8 +18,7 @@ uservoice-cli --output json --base-url https://acme.uservoice.com ideas get 101
 | `--max-in-flight` | `USERVOICE_MAX_IN_FLIGHT` | Concurrent upstream requests, 1 to 8, default 2 |
 | `--output` | `USERVOICE_DEFAULT_OUTPUT` | `human`, `json`, or `ndjson`, default `human` |
 
-`--output ndjson` works only for `ideas collect` and `ideas search --all`.
-`--output json` and `--all` cannot be combined: the stream is NDJSON.
+`--output ndjson` works only for the `ideas` commands. It is meant for the streaming ones, `ideas collect` and `ideas search --all`. `--output json` and `--all` cannot be combined: the stream is NDJSON.
 
 ## Commands
 
@@ -34,7 +33,7 @@ uservoice-cli --output json --base-url https://acme.uservoice.com ideas get 101
 | `ideas update` | `uservoice_update_idea` | Preview then apply |
 | `ideas publish` | `uservoice_publish_idea_update` | Preview then apply |
 | `feedback record` | `uservoice_record_feedback` | One step, idempotent |
-| `skills` | none | Serves this corpus, see [core](../SKILL.md) |
+| `skills` | none | Serves this corpus. Run `uservoice-cli skills get core` for the guide |
 
 ## login
 
@@ -53,7 +52,7 @@ missing value fails with `missing_value` instead of blocking.
 
 | Flag | Meaning |
 |---|---|
-| `--include-catalog` | Also load Forums, Categories, Statuses, Labels |
+| `--include-catalog` | Also load Forums, Categories, Statuses, Labels. On by default |
 
 ## ideas search
 

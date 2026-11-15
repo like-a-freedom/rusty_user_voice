@@ -10,7 +10,9 @@ holds the bearer token out of assistant messages and out of logs, and sends it
 to UserVoice over HTTPS.
 
 Every tool returns the same envelope: `status`, `data`, `next_actions`,
-`guidance`, `pagination`, `rate_limit`. See [envelope.md](envelope.md).
+`guidance`, `pagination`, `rate_limit`. Run
+`uservoice-cli skills get core --ref envelope.md` for the fields of every
+response.
 
 The MCP surface returns one page per call. To drain every page in one stream,
 use `uservoice-cli ideas search --all` or `ideas collect`.

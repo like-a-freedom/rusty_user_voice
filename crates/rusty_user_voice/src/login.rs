@@ -40,24 +40,9 @@ pub fn resolve_login_inputs(
     (url, token)
 }
 
-/// Pure output-mode resolution, mirroring the precedence every other command
-/// uses (`config.rs`: flag > `USERVOICE_DEFAULT_OUTPUT` env > `config.yaml
-/// default_output` > human). Login is intercepted before
-/// `Settings::from_sources`, so it must resolve the mode itself — otherwise a
-/// `default_output: json` user gets prose errors from an agent-driven command.
-///
-/// The rule itself lives in [`OutputMode::resolve`]; this wrapper keeps the
-/// boolean the login flow needs.
-pub fn resolve_machine_mode(
-    flag: Option<OutputMode>,
-    env_default: Option<String>,
-    config_default: Option<String>,
-) -> bool {
-    OutputMode::resolve(flag, env_default, config_default).is_machine()
-}
-
-/// IO wrapper around [`resolve_machine_mode`]: reads env + the user config.
-/// Kept separate from the pure resolver so the precedence stays unit-tested.
+/// IO wrapper around the output-mode resolution: reads the environment and the
+/// effective config file, exactly like [`OutputMode::resolve_now`]. Kept
+/// separate from the pure resolver so the precedence stays unit-tested.
 pub fn machine_mode_now(flag: Option<OutputMode>) -> bool {
     OutputMode::resolve_now(flag).is_machine()
 }
@@ -382,37 +367,6 @@ mod tests {
         let (url, token) = resolve_login_inputs(None, None, None, None);
         assert!(url.is_none());
         assert!(token.is_none());
-    }
-
-    #[test]
-    fn resolve_machine_mode_prefers_the_explicit_flag() {
-        assert!(resolve_machine_mode(
-            Some(OutputMode::Ndjson),
-            Some("human".to_owned()),
-            Some("human".to_owned()),
-        ));
-    }
-
-    #[test]
-    fn resolve_machine_mode_falls_back_to_env_then_config() {
-        assert!(resolve_machine_mode(
-            None,
-            Some("json".to_owned()),
-            Some("human".to_owned())
-        ));
-        assert!(resolve_machine_mode(None, None, Some("json".to_owned())));
-    }
-
-    #[test]
-    fn resolve_machine_mode_human_and_unknown_values_are_prose() {
-        assert!(!resolve_machine_mode(Some(OutputMode::Human), None, None));
-        assert!(!resolve_machine_mode(None, Some("human".to_owned()), None));
-        assert!(!resolve_machine_mode(
-            None,
-            None,
-            Some("nonsense".to_owned())
-        ));
-        assert!(!resolve_machine_mode(None, None, None));
     }
 
     #[test]

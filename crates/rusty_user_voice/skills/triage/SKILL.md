@@ -41,8 +41,8 @@ uservoice-cli --output ndjson ideas collect \
   --checkpoint-name weekly-triage
 ```
 
-See [pagination.md](../core/references/pagination.md) for cursors, `--all`, and
-checkpoints.
+Run `uservoice-cli skills get core --ref pagination.md` for cursors, `--all`,
+and checkpoints.
 
 ## 3. Read each candidate
 
@@ -109,8 +109,7 @@ is something supporters should read.
 uservoice-cli --output json ideas publish 101 \
   --mode preview \
   --status-id 5 \
-  --message "We are looking at this for the next release." \
-  --notify-supporters false
+  --message "We are looking at this for the next release."
 ```
 
 Preview, then apply with the Change ID and an Idempotency Key.

@@ -61,11 +61,24 @@ enum Payload {
 }
 
 /// Run a `skills` subcommand, writing the result to `output`.
+///
+/// The output mode is the global one. `human` prints the document as it is,
+/// which is what an agent wants to read. `json` wraps it, which is what a
+/// script wants. `ndjson` has no meaning for a document, so it is rejected
+/// rather than silently printing prose.
 pub fn run_skills(
     command: &SkillsCommand,
     mode: OutputMode,
     output: &mut dyn Write,
 ) -> Result<(), CommandError> {
+    if mode == OutputMode::Ndjson {
+        return Err(CommandError::new(
+            REASON_VALIDATION_FAILED,
+            "ndjson output is not supported for skills".to_owned(),
+            "use `--output human` to read the document, or `--output json` for a wrapper"
+                .to_owned(),
+        ));
+    }
     let payload = build_payload(command)?;
     render(payload, mode, output)
 }
@@ -134,9 +147,7 @@ fn build_payload(command: &SkillsCommand) -> Result<Payload, CommandError> {
                     CommandError::new(
                         REASON_UNKNOWN_REFERENCE,
                         format!("skill '{name}' has no reference '{reference}'"),
-                        format!(
-                            "run `uservoice-cli skills get {name} --full` to see the references of '{name}'"
-                        ),
+                        reference_hint(&skill, reference),
                     )
                 })?;
                 return Ok(Payload::Reference {
@@ -184,7 +195,10 @@ fn render(payload: Payload, mode: OutputMode, output: &mut dyn Write) -> Result<
                 "reference": reference,
                 "content": content,
             })),
-            Payload::Catalog(skills) => Ok(serde_json::json!({ "skills": skills })),
+            // The catalog carries the documents, the list carries the
+            // metadata. Distinct keys, so a consumer can tell them apart
+            // without inspecting the elements.
+            Payload::Catalog(skills) => Ok(serde_json::json!({ "catalog": skills })),
         };
         let value = value.map_err(|error| {
             CommandError::new(
@@ -241,6 +255,40 @@ fn write_text(text: &str, output: &mut dyn Write) -> Result<(), CommandError> {
         writeln!(output).map_err(|error| io_error(error, "write the skill"))?;
     }
     Ok(())
+}
+
+/// The recovery hint for a reference that the skill does not own.
+///
+/// A skill with references can list them. A skill without any cannot, so the
+/// hint names the skill that does hold the reference, if there is one.
+fn reference_hint(skill: &crate::skills::Skill, reference: &str) -> String {
+    let owner = skills::catalog().into_iter().find(|candidate| {
+        candidate
+            .references
+            .iter()
+            .any(|found| found.name == reference || found.path == reference)
+    });
+
+    if let Some(owner) = owner
+        && owner.name != skill.name
+    {
+        return format!(
+            "run `uservoice-cli skills get {} --ref {reference}`",
+            owner.name
+        );
+    }
+
+    if skill.references.is_empty() {
+        return format!(
+            "the '{}' skill has no references; run `uservoice-cli skills list` to see the corpus",
+            skill.name
+        );
+    }
+
+    format!(
+        "run `uservoice-cli skills get {} --full` to see the references of '{}'",
+        skill.name, skill.name
+    )
 }
 
 fn io_error(error: std::io::Error, action: &str) -> CommandError {

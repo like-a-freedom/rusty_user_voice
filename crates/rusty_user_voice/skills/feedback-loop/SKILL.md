@@ -52,7 +52,7 @@ uservoice-cli --output json ideas publish 101 \
   --mode preview \
   --status-id 5 \
   --message "CSV export shipped in 2.4. Thank you for the requests that got it there." \
-  --notify-supporters true
+  --notify-supporters
 ```
 
 Read the preview as a supporter would. Then apply it with the Change ID, the
@@ -63,7 +63,7 @@ uservoice-cli --output json ideas publish 101 \
   --mode apply \
   --status-id 5 \
   --message "CSV export shipped in 2.4. Thank you for the requests that got it there." \
-  --notify-supporters true \
+  --notify-supporters \
   --change-id "$CHANGE_ID" \
   --confirmation apply \
   --idempotency-key close-loop-101-2026-01-08

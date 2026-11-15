@@ -13,9 +13,11 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 /// Frontmatter of a skill document.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct Frontmatter {
+    #[serde(default)]
     name: String,
+    #[serde(default)]
     description: String,
 }
 
@@ -63,21 +65,26 @@ impl Skill {
 }
 
 /// Every bundled skill, ordered by name.
+///
+/// The corpus layout is validated by `build.rs`, so a malformed entry cannot
+/// reach the binary. This function still skips anything it does not
+/// recognise rather than panicking: a crash in `skills list` would take down
+/// the command for every user of the installed binary.
 pub fn catalog() -> Vec<Skill> {
     let mut documents: BTreeMap<&str, (&'static str, &'static str)> = BTreeMap::new();
     let mut references: BTreeMap<&str, Vec<Reference>> = BTreeMap::new();
 
     for (path, content) in generated::SKILL_FILES {
-        let (skill, file) = path
-            .split_once('/')
-            .expect("every corpus file lives in a skill directory");
+        let Some((skill, file)) = path.split_once('/') else {
+            continue;
+        };
         if file == "SKILL.md" {
             documents.insert(skill, (path, content));
             continue;
         }
-        let name = file
-            .strip_prefix("references/")
-            .expect("every file next to SKILL.md is a reference");
+        let Some(name) = file.strip_prefix("references/") else {
+            continue;
+        };
         references.entry(skill).or_default().push(Reference {
             path: file.to_owned(),
             name: name.to_owned(),
@@ -108,14 +115,21 @@ pub fn find(name: &str) -> Option<Skill> {
 }
 
 /// Read the frontmatter of a skill document.
+///
+/// The document is normalized first, so a file saved with Windows line
+/// endings parses the same as one saved with Unix line endings. A malformed
+/// document yields an empty name and description rather than a panic: the
+/// contract test is what rejects a broken corpus, and a crash here would
+/// take the command down for every user of the installed binary.
 fn parse_frontmatter(content: &'static str) -> Frontmatter {
-    let rest = content
-        .strip_prefix("---\n")
-        .expect("every skill document opens with frontmatter");
-    let end = rest
-        .find("\n---\n")
-        .expect("every skill document closes its frontmatter");
-    serde_yaml::from_str(&rest[..end]).expect("every skill frontmatter is valid YAML")
+    let normalized = content.replace("\r\n", "\n");
+    let Some(rest) = normalized.strip_prefix("---\n") else {
+        return Frontmatter::default();
+    };
+    let Some(end) = rest.find("\n---\n") else {
+        return Frontmatter::default();
+    };
+    serde_yaml::from_str(&rest[..end]).unwrap_or_default()
 }
 
 #[cfg(test)]

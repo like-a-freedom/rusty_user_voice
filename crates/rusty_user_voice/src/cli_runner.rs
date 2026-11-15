@@ -37,7 +37,7 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
         && !search_all_flag
     {
         return Err(AppError::Validation(
-            "--output ndjson is valid only for ideas collect and ideas search --all".to_owned(),
+            "--output ndjson is valid only for the ideas commands".to_owned(),
         ));
     }
     if search_all_flag && mode == OutputMode::Json {

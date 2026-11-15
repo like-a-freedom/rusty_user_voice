@@ -8,9 +8,10 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use clap::CommandFactory;
+use clap::{CommandFactory, Parser};
 use rusty_user_voice::{
-    COMMAND_REASONS, Cli, OutputMode, ToolName, cli::SkillsCommand, skills, skills_cli,
+    COMMAND_REASONS, Cli, Envelope, OutputMode, ToolName, WorkspaceContext, cli::SkillsCommand,
+    skills, skills_cli,
 };
 
 /// The corpus text of one file, addressed by its path inside `skills/`.
@@ -76,7 +77,9 @@ fn every_long_flag_is_documented_in_the_cli_reference() {
     let reference = corpus_text("core/references/cli.md");
     let mut missing = Vec::new();
     for flag in long_flags() {
-        if !reference.contains(&flag) {
+        // Whole-word match, so a renamed flag cannot be satisfied by a
+        // longer flag that starts the same way.
+        if !mentions(&reference, &flag) {
             missing.push(flag);
         }
     }
@@ -84,6 +87,18 @@ fn every_long_flag_is_documented_in_the_cli_reference() {
         missing.is_empty(),
         "the CLI reference does not document: {missing:?}"
     );
+}
+
+/// Whether a document mentions a token as a whole word.
+fn mentions(document: &str, token: &str) -> bool {
+    document.match_indices(token).any(|(start, found)| {
+        let before = document[..start].chars().next_back();
+        let after = document[start + found.len()..].chars().next();
+        let boundary = |character: Option<char>| {
+            character.is_none_or(|character| !character.is_alphanumeric() && character != '-')
+        };
+        boundary(before) && boundary(after)
+    })
 }
 
 #[test]
@@ -127,26 +142,70 @@ fn every_envelope_status_is_documented_in_the_error_reference() {
     }
 }
 
+/// The exit-code contract is part of what the corpus promises, so the test
+/// checks it the same way it checks the reason tokens.
+#[test]
+fn the_exit_code_contract_is_documented_in_the_error_reference() {
+    let reference = corpus_text("core/references/errors.md");
+    for code in ["0", "1", "2", "3"] {
+        assert!(
+            reference.contains(&format!("| {code} ")),
+            "the error reference does not document the exit code '{code}'"
+        );
+    }
+}
+
+/// The envelope fields are part of the contract too: an agent reads them by
+/// name, so a renamed field has to reach the corpus. The names come from the
+/// schema, so the test follows a rename instead of remembering the old one.
+#[test]
+fn every_envelope_field_is_documented_in_the_envelope_reference() {
+    let reference = corpus_text("core/references/envelope.md");
+    let schema = schemars::schema_for!(Envelope<WorkspaceContext>);
+    let value = serde_json::to_value(&schema).expect("the envelope schema is JSON");
+    let properties = value
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("the envelope schema has properties");
+    assert!(
+        !properties.is_empty(),
+        "the envelope schema has no properties"
+    );
+    for field in properties.keys() {
+        assert!(
+            reference.contains(&format!("`{field}`")),
+            "the envelope reference does not document the '{field}' field"
+        );
+    }
+}
+
 #[test]
 fn the_corpus_documents_every_command_the_cli_offers() {
     let reference = corpus_text("core/references/cli.md");
-    for command in [
-        "login",
-        "logout",
-        "workspace",
-        "ideas search",
-        "ideas get",
-        "ideas collect",
-        "ideas update",
-        "ideas publish",
-        "feedback record",
-        "skills",
-    ] {
+    for command in command_paths() {
         assert!(
-            reference.contains(command),
+            reference.contains(&command),
             "the CLI reference does not document the '{command}' command"
         );
     }
+}
+
+/// Every command path in the CLI, read out of the clap tree.
+///
+/// The paths come from the tree, so a new subcommand has to reach the corpus
+/// even when it adds no new flags.
+fn command_paths() -> Vec<String> {
+    fn walk(command: &clap::Command, prefix: &str, paths: &mut Vec<String>) {
+        for subcommand in command.get_subcommands() {
+            let path = format!("{prefix}{}", subcommand.get_name());
+            paths.push(path.clone());
+            walk(subcommand, &format!("{path} "), paths);
+        }
+    }
+
+    let mut paths = Vec::new();
+    walk(&Cli::command(), "", &mut paths);
+    paths
 }
 
 #[test]
@@ -218,6 +277,119 @@ fn every_markdown_link_in_the_corpus_resolves() {
             );
         }
     }
+}
+
+/// The corpus is a product surface: an agent copies its commands and runs
+/// them. A command the CLI rejects is a broken product, not a typo in the
+/// documentation.
+///
+/// Every `uservoice-cli` command in the corpus must parse. Placeholders such
+/// as `$CHANGE_ID` are substituted with a real value first, so the parse
+/// checks the shape of the command rather than the shape of the placeholder.
+#[test]
+fn every_command_in_the_corpus_parses() {
+    let corpus_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills");
+    for file in corpus_files(&corpus_root) {
+        let content = std::fs::read_to_string(&file).expect("read the corpus file");
+        for command in shell_commands(&content) {
+            let arguments = shell_arguments(&command);
+            Cli::try_parse_from(&arguments).unwrap_or_else(|error| {
+                panic!(
+                    "the corpus file '{}' holds a command the CLI rejects: '{command}'\n{error}",
+                    file.display()
+                )
+            });
+        }
+    }
+}
+
+/// The `uservoice-cli` commands in one document.
+///
+/// Only the fenced code blocks count. Prose may mention the tool by name, as
+/// in "a `uservoice-cli` command", and that is not a command. A command may
+/// sit on its own line or after a pipe, as in
+/// `echo "$KEY" | uservoice-cli login ...`. Line continuations are joined
+/// first, so a command spread over several lines counts as one.
+fn shell_commands(content: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    for block in fenced_blocks(content) {
+        let joined = block.replace("\\\n", " ");
+        for line in joined.lines() {
+            let line = line.trim();
+            let Some(start) = line.find("uservoice-cli ") else {
+                continue;
+            };
+            let command = line[start..].trim();
+            // A trailing comment is not part of the command.
+            let command = command.split(" #").next().unwrap_or(command).trim();
+            commands.push(command.to_owned());
+        }
+    }
+    commands
+}
+
+/// The contents of the fenced code blocks in one document.
+fn fenced_blocks(content: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current: Option<String> = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        match current {
+            None => {
+                if trimmed.starts_with("```") {
+                    current = Some(String::new());
+                }
+            }
+            Some(mut block) => {
+                if trimmed.starts_with("```") {
+                    blocks.push(block);
+                    current = None;
+                } else {
+                    block.push_str(line);
+                    block.push('\n');
+                    current = Some(block);
+                }
+            }
+        }
+    }
+    blocks
+}
+
+/// The arguments of one command, split on whitespace but keeping a quoted
+/// value together. `$CHANGE_ID` is replaced with a real UUID, so the parse
+/// checks the shape of the command rather than the shape of the placeholder.
+fn shell_arguments(command: &str) -> Vec<String> {
+    let mut arguments = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for character in command.chars() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                current.push(character);
+            }
+            character if character.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    arguments.push(std::mem::take(&mut current));
+                }
+            }
+            character => current.push(character),
+        }
+    }
+    if !current.is_empty() {
+        arguments.push(current);
+    }
+    arguments
+        .into_iter()
+        .map(|argument| {
+            let unquoted = argument.trim_matches('"');
+            if unquoted == "$CHANGE_ID" {
+                "00000000-0000-0000-0000-000000000000".to_owned()
+            } else {
+                argument
+            }
+        })
+        .collect()
 }
 
 /// Every markdown file under the corpus root.

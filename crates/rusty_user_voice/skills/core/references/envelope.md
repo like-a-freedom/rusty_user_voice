@@ -27,7 +27,7 @@ Every tool returns the same six fields, whatever the call.
 
 | Field | Meaning |
 |---|---|
-| `status` | `ok`, `partial`, `no_results`, or `conflict`. See [errors.md](errors.md) |
+| `status` | `ok`, `partial`, `no_results`, or `conflict`. Run `uservoice-cli skills get core --ref errors.md` for what to do with each |
 | `data` | The payload. Its shape depends on the tool |
 | `next_actions` | What to call next, with the arguments to use |
 | `guidance` | A sentence of recovery advice, present when the status needs it |

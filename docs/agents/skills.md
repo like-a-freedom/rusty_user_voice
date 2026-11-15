@@ -18,7 +18,7 @@ crates/rusty_user_voice/skills/
 
 `build.rs` discovers the files and generates a table of path and content. `src/skills.rs` turns that table into a catalog; `src/skills_cli.rs` serves it.
 
-A directory is a skill when it holds a `SKILL.md`. Everything else under it is a reference.
+A directory is a skill when it holds a `SKILL.md`. Its references sit in `<skill>/references/`. The build script rejects anything else, so a stray file fails the build instead of crashing the installed binary.
 
 ## The maintenance contract
 
@@ -36,7 +36,9 @@ A directory is a skill when it holds a `SKILL.md`. Everything else under it is a
 
 `crates/rusty_user_voice/tests/skills_contract.rs` checks each row of that table. A flag that is not documented, a tool that is not documented, a reason token that is not documented, an orphaned reference, or a file over its word budget fails the build.
 
-The test reads the flags out of the clap tree and the tool names out of `ToolName::ALL`, so the list of what must be documented comes from the code, never from a hand-kept copy.
+The test reads the flags out of the clap tree, the tool names out of `ToolName::ALL`, the envelope fields out of the schema, and the command paths out of the clap tree, so the list of what must be documented comes from the code, never from a hand-kept copy.
+
+It also runs every `uservoice-cli` command found in the corpus through the argument parser. A command the CLI rejects is a broken product, not a typo in the documentation.
 
 ## Progressive disclosure
 
@@ -74,6 +76,8 @@ Two rules keep the layering honest:
 A file over its budget is a sign that it mixes two topics. Split it into a second reference.
 
 **Progressive disclosure inside a file too.** Lead with the decision, put the detail behind it, and use a table when the content is a list of facts.
+
+**Every cross-reference is a command.** A reference that says "see `cli.md`" sends an agent to a file it cannot open. Say `uservoice-cli skills get core --ref cli.md` instead. The "load more" map at the end of `core` is the entry point, and every row in it is a runnable command.
 
 **Plain prose.** Short sentences, active voice, no filler. The repository style tolerates an em dash in a code comment; the corpus is read by a model under a context budget, so it stays plain.
 
