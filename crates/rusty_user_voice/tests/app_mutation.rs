@@ -530,6 +530,54 @@ async fn preview_rejects_a_custom_field_key_the_api_would_ignore() {
 }
 
 #[tokio::test]
+async fn a_null_custom_field_clears_the_value() {
+    let api = support::FakeUserVoiceApi::with_custom_fields(BTreeMap::from([(
+        "cf_tfs_link".to_owned(),
+        serde_json::json!("https://old.example.com/1"),
+    )]));
+    let directory = TempDir::new().expect("state directory");
+    let app = App::new(Arc::new(api.clone()), 2)
+        .with_ledger(Arc::new(DiskChangeLedger::new(
+            directory.path().join("ledger"),
+        )))
+        .with_clock(Arc::new(FixedClock::new(
+            Utc.with_ymd_and_hms(2026, 7, 24, 10, 0, 0).unwrap(),
+        )));
+
+    let preview_params = update_with_custom_fields(
+        IdeaId::new(101),
+        &[("cf_tfs_link", serde_json::Value::Null)],
+    );
+    let preview = app
+        .update_idea(preview_params.clone())
+        .await
+        .expect("preview");
+    let change = preview
+        .data
+        .changes
+        .iter()
+        .find(|change| change.field == "cf_tfs_link")
+        .expect("the clear must appear in the diff");
+    assert_eq!(change.before.as_deref(), Some("https://old.example.com/1"));
+    assert_eq!(change.after, None, "a null clears, so there is no after");
+
+    app.update_idea(UpdateIdeaParams::apply_from_preview(
+        &preview_params,
+        preview.data.change_id.expect("change id"),
+        "apply",
+        "custom-fields-clear-1",
+    ))
+    .await
+    .expect("apply");
+    let sent = api.recorded_updates().pop().expect("one update call");
+    assert_eq!(
+        sent.custom_fields.get("cf_tfs_link"),
+        Some(&serde_json::Value::Null),
+        "the body must carry the key with an explicit null"
+    );
+}
+
+#[tokio::test]
 async fn apply_rejects_custom_fields_that_differ_from_the_preview() {
     let (_directory, api, app) = mutation_app();
     let preview_params = update_with_custom_fields(

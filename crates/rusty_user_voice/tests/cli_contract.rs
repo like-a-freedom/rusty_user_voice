@@ -1098,6 +1098,13 @@ fn custom_field_arguments_reject_what_the_api_would_ignore() {
     let error = rusty_user_voice::parse_custom_fields(&[], &["cf_reviewed=maybe".to_owned()])
         .expect_err("not a JSON literal");
     assert!(error.contains("JSON"), "{error}");
+
+    let error = rusty_user_voice::parse_custom_fields(&[], &["cf_no_separator".to_owned()])
+        .expect_err("no separator");
+    assert!(
+        error.contains("--custom-field-json"),
+        "the error must name the flag that was used: {error}"
+    );
 }
 
 #[tokio::test]

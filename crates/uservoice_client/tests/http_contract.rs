@@ -185,6 +185,10 @@ async fn update_suggestion_sends_custom_fields_as_top_level_keys() {
                         serde_json::json!("https://example.com/tfs/1"),
                     ),
                     ("cf_reviewed".to_owned(), serde_json::json!(true)),
+                    (
+                        "cf_planned_release_date".to_owned(),
+                        serde_json::Value::Null,
+                    ),
                 ]),
                 ..Default::default()
             },
@@ -195,6 +199,11 @@ async fn update_suggestion_sends_custom_fields_as_top_level_keys() {
     let body = seen.lock().expect("body lock").clone().expect("body");
     assert_eq!(body["cf_tfs_link"], "https://example.com/tfs/1");
     assert_eq!(body["cf_reviewed"], true);
+    assert_eq!(
+        body["cf_planned_release_date"],
+        serde_json::Value::Null,
+        "a null must stay in the body: it clears the field"
+    );
     assert!(
         body.get("custom_fields").is_none(),
         "custom fields must be top-level keys; a nested object is silently ignored upstream: {body}"
@@ -274,7 +283,100 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
     assert_eq!(catalog.custom_fields.len(), 2);
     assert_eq!(catalog.custom_fields[0].key, "cf_tfs_link");
     assert_eq!(catalog.custom_fields[0].value_type.as_deref(), Some("url"));
-    assert_eq!(catalog.custom_fields[1].field_type, "boolean");
+    assert_eq!(
+        catalog.custom_fields[1].field_type.as_deref(),
+        Some("boolean")
+    );
+}
+
+/// The custom-fields endpoint is an extra: a key that cannot read it must
+/// still get the taxonomy. The catalog says which section it could not load,
+/// the same way an Idea context reports `missing_sections`.
+#[tokio::test]
+async fn workspace_catalog_degrades_when_custom_fields_are_forbidden() {
+    let server = MockServer::start().await;
+    let fixture = include_str!("fixtures/workspace.json");
+    for endpoint in &["forums", "categories", "statuses", "labels"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v2/admin/{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = fixture_client(&server)
+        .workspace_catalog()
+        .await
+        .expect("a forbidden custom-fields read must not sink the catalog")
+        .data;
+    assert_eq!(catalog.forums[0].id.get(), 11);
+    assert!(catalog.custom_fields.is_empty());
+    assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
+}
+
+/// The `object_type` filter is part of every page of the custom-fields drain,
+/// and a definition without `field_type` still parses.
+#[tokio::test]
+async fn custom_fields_pagination_keeps_the_object_type_filter() {
+    let server = MockServer::start().await;
+    let fixture = include_str!("fixtures/workspace.json");
+    for endpoint in &["forums", "categories", "statuses", "labels"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v2/admin/{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .and(query_param("object_type", "suggestions"))
+        .and(query_param_is_missing("cursor"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "Link",
+                    format!(
+                        "<{}/api/v2/admin/custom_fields?per_page=100&object_type=suggestions&cursor=c2>; rel=\"next\"",
+                        server.uri()
+                    ),
+                )
+                .set_body_raw(
+                    r#"{"custom_fields":[{"key":"cf_a","field_type":"string"}]}"#,
+                    "application/json",
+                ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .and(query_param("object_type", "suggestions"))
+        .and(query_param("cursor", "c2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(r#"{"custom_fields":[{"key":"cf_b"}]}"#, "application/json"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = fixture_client(&server)
+        .workspace_catalog()
+        .await
+        .expect("catalog")
+        .data;
+    assert_eq!(catalog.custom_fields.len(), 2);
+    assert_eq!(
+        catalog.custom_fields[0].field_type.as_deref(),
+        Some("string")
+    );
+    assert_eq!(catalog.custom_fields[1].field_type, None);
 }
 
 #[tokio::test]

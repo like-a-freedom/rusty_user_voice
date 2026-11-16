@@ -420,24 +420,33 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
             })
             .await?;
         // Only the fields an idea can carry: the endpoint also lists user and
-        // account fields, which an idea update cannot set.
-        let custom_fields = self
+        // account fields, which an idea update cannot set. The section is
+        // best-effort: a key that cannot read it still gets the taxonomy, and
+        // the catalog names what is missing.
+        let (custom_fields, custom_fields_rate_limit, missing_sections) = match self
             .collect_catalog(
                 "custom_fields",
                 &[("object_type", "suggestions")],
                 |value: CustomFieldsResponse| (value.custom_fields, value.pagination),
             )
-            .await?;
+            .await
+        {
+            Ok(page) => (page.data, page.rate_limit, Vec::new()),
+            Err(error) => {
+                tracing::warn!("cannot read the Idea custom fields: {error}");
+                (Vec::new(), None, vec!["custom_fields".to_owned()])
+            }
+        };
         Ok(ApiResponse {
             data: WorkspaceCatalog {
                 forums: forums.data,
                 categories: categories.data,
                 statuses: statuses.data,
                 labels: labels.data,
-                custom_fields: custom_fields.data,
+                custom_fields,
+                missing_sections,
             },
-            rate_limit: custom_fields
-                .rate_limit
+            rate_limit: custom_fields_rate_limit
                 .or(labels.rate_limit)
                 .or(statuses.rate_limit)
                 .or(categories.rate_limit)

@@ -388,3 +388,26 @@ async fn workspace_context_lists_custom_fields_a_caller_can_set() {
         .expect("cf_tfs_link");
     assert_eq!(link.value_type.as_deref(), Some("url"));
 }
+
+#[tokio::test]
+async fn workspace_context_is_partial_when_a_catalog_section_is_missing() {
+    let app = App::new(
+        Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(
+            "custom_fields",
+        )),
+        2,
+    );
+    let result = app
+        .workspace_context(rusty_user_voice::WorkspaceContextParams {
+            include_catalog: true,
+        })
+        .await
+        .expect("workspace");
+    assert_eq!(
+        result.status,
+        OutcomeStatus::Partial,
+        "a catalog that lost a section must say so in the status"
+    );
+    let catalog = result.data.catalog.expect("catalog");
+    assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
+}

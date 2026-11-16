@@ -27,7 +27,9 @@ Load the principal and the taxonomy.
 
 Call it first. Every ID used later comes from the catalog it returns. The
 `custom_fields` section names the keys an update can set, so pick a key from
-there instead of guessing one.
+there instead of guessing one — the API ignores a key the tenant has not
+defined. A section the API refuses is listed in `missing_sections`, and the
+status is then `partial`.
 
 ## uservoice_search_ideas
 

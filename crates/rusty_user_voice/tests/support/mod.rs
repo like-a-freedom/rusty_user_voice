@@ -26,6 +26,7 @@ pub struct FakeUserVoiceApi {
     writes: Arc<Mutex<Vec<RecordedWrite>>>,
     updates: Arc<Mutex<Vec<UpdateSuggestionRequest>>>,
     custom_fields: Arc<Mutex<BTreeMap<String, serde_json::Value>>>,
+    missing_catalog_sections: Arc<Vec<String>>,
     fail_write_number: Arc<Mutex<Option<usize>>>,
 }
 
@@ -40,6 +41,7 @@ impl FakeUserVoiceApi {
             writes: Arc::new(Mutex::new(Vec::new())),
             updates: Arc::new(Mutex::new(Vec::new())),
             custom_fields: Arc::new(Mutex::new(BTreeMap::new())),
+            missing_catalog_sections: Arc::new(Vec::new()),
             fail_write_number: Arc::new(Mutex::new(None)),
         }
     }
@@ -49,6 +51,15 @@ impl FakeUserVoiceApi {
     pub fn with_custom_fields(fields: BTreeMap<String, serde_json::Value>) -> Self {
         Self {
             custom_fields: Arc::new(Mutex::new(fields)),
+            ..Self::complete()
+        }
+    }
+
+    /// The catalog could not load `section`, as the client reports when the
+    /// API refuses the custom-fields read.
+    pub fn with_missing_catalog_sections(section: &str) -> Self {
+        Self {
+            missing_catalog_sections: Arc::new(vec![section.to_owned()]),
             ..Self::complete()
         }
     }
@@ -132,7 +143,8 @@ impl UserVoiceApi for FakeUserVoiceApi {
             "custom_fields": [
                 {"key": "cf_tfs_link", "name": "TFS link", "field_type": "string", "value_type": "url", "object_type": "suggestions"},
                 {"key": "cf_reviewed", "name": "Reviewed", "field_type": "boolean", "object_type": "suggestions"}
-            ]
+            ],
+            "missing_sections": self.missing_catalog_sections.as_ref().clone()
         }))))
     }
 

@@ -287,13 +287,14 @@ pub fn parse_custom_fields(
     json: &[String],
 ) -> Result<BTreeMap<String, serde_json::Value>, String> {
     let mut fields = BTreeMap::new();
-    for (raw, is_json) in plain
+    for (raw, flag, is_json) in plain
         .iter()
-        .map(|raw| (raw, false))
-        .chain(json.iter().map(|raw| (raw, true)))
+        .map(|raw| (raw, "--custom-field", false))
+        .chain(json.iter().map(|raw| (raw, "--custom-field-json", true)))
     {
+        let expected = if is_json { "KEY=JSON" } else { "KEY=VALUE" };
         let (key, value) = raw.split_once('=').ok_or_else(|| {
-            format!("expected KEY=VALUE in `{raw}` — use --custom-field cf_key=value")
+            format!("expected {expected} in `{raw}` — pass it as {flag} {expected}")
         })?;
         if !is_custom_field_key(key) {
             return Err(format!(

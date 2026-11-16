@@ -56,8 +56,12 @@ impl<G: UserVoiceApi> App<G> {
             (None, None)
         };
         let rate_limit = conservative_rate_limit(current.rate_limit.clone(), catalog_rate_limit);
+        let status = match &catalog {
+            Some(catalog) if !catalog.missing_sections.is_empty() => OutcomeStatus::Partial,
+            _ => OutcomeStatus::Ok,
+        };
         Ok(Envelope {
-            status: OutcomeStatus::Ok,
+            status,
             data: WorkspaceContext {
                 current_user: current.data,
                 catalog,

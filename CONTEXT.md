@@ -42,7 +42,10 @@ date, ...). The API carries the values as top-level keys of the update body and
 silently ignores any key it does not recognise, so `ideas update` rejects a key
 that is not `cf_`-shaped instead of writing nothing. Preview shows each field's
 before and after; the value is part of the apply fingerprint.
-`uservoice_workspace_context` lists the available keys and types.
+`uservoice_workspace_context` lists the available keys and types. A key the
+tenant does not define is still ignored by the API, so the catalog is the
+source of valid keys; a catalog section that cannot be read is named in
+`missing_sections`.
 _Avoid_: metadata, attribute
 
 **Supporter**:

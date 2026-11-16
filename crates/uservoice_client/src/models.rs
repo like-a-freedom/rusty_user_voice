@@ -145,7 +145,11 @@ pub struct Label {
 pub struct CustomField {
     pub key: String,
     pub name: Option<String>,
-    pub field_type: String,
+    /// `string`, `text`, `number`, `boolean`, `timestamp`, `select`, or
+    /// `multi_select` — optional so one odd definition cannot fail the whole
+    /// catalog.
+    #[serde(default)]
+    pub field_type: Option<String>,
     pub value_type: Option<String>,
     pub object_type: Option<String>,
     #[serde(flatten)]
@@ -162,6 +166,10 @@ pub struct WorkspaceCatalog {
     /// instead of guessing one.
     #[serde(default)]
     pub custom_fields: Vec<CustomField>,
+    /// Catalog sections the API refused or failed to return. The rest of the
+    /// catalog is still usable, and the name says what is absent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_sections: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
