@@ -320,6 +320,45 @@ async fn workspace_catalog_degrades_when_custom_fields_are_forbidden() {
     assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
 }
 
+/// A throttle while reading the custom fields still lets the caller retry:
+/// the 429 budget travels with the partial catalog instead of being dropped.
+#[tokio::test]
+async fn a_rate_limited_custom_fields_read_keeps_its_budget() {
+    let server = MockServer::start().await;
+    let fixture = include_str!("fixtures/workspace.json");
+    for endpoint in &["forums", "categories", "statuses", "labels"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v2/admin/{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("Retry-After", "0")
+                .insert_header("X-Rate-Limit-Limit", "100")
+                .insert_header("X-Rate-Limit-Remaining", "0")
+                .insert_header("X-Rate-Limit-Reset", "30"),
+        )
+        .mount(&server)
+        .await;
+
+    let response = fixture_client(&server)
+        .workspace_catalog()
+        .await
+        .expect("a throttle must not sink the catalog");
+    assert_eq!(
+        response.data.missing_sections,
+        vec!["custom_fields".to_owned()]
+    );
+    let rate_limit = response
+        .rate_limit
+        .expect("the 429 budget must travel with the partial catalog");
+    assert_eq!(rate_limit.remaining, 0);
+}
+
 /// The `object_type` filter is part of every page of the custom-fields drain,
 /// and a definition without `field_type` still parses.
 #[tokio::test]

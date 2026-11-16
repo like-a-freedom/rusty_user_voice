@@ -432,6 +432,12 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
             .await
         {
             Ok(page) => (page.data, page.rate_limit, Vec::new()),
+            // A throttle is a transient reason to retry, so the budget
+            // travels with the partial catalog instead of being dropped.
+            Err(ClientError::RateLimited { rate_limit }) => {
+                tracing::warn!("cannot read the Idea custom fields: rate limited");
+                (Vec::new(), rate_limit, vec!["custom_fields".to_owned()])
+            }
             Err(error) => {
                 tracing::warn!("cannot read the Idea custom fields: {error}");
                 (Vec::new(), None, vec!["custom_fields".to_owned()])

@@ -410,4 +410,13 @@ async fn workspace_context_is_partial_when_a_catalog_section_is_missing() {
     );
     let catalog = result.data.catalog.expect("catalog");
     assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
+    assert!(
+        result
+            .guidance
+            .as_deref()
+            .is_some_and(|guidance| guidance.contains("Retry")),
+        "a partial load must tell the caller what to do: {:?}",
+        result.guidance
+    );
+    assert_eq!(result.next_actions[0].tool, "uservoice_workspace_context");
 }

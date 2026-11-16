@@ -27,8 +27,12 @@ pub trait UserVoiceApi: Clone + Send + Sync + 'static {
     /// Returns the authenticated principal. Acts as the access preflight.
     fn current_user(&self) -> impl Future<Output = Result<ApiResponse<User>, ClientError>> + Send;
 
-    /// Loads the full workspace taxonomy (forums, categories, statuses, labels)
-    /// across all pages.
+    /// Loads the full workspace taxonomy (forums, categories, statuses,
+    /// labels, and the Idea custom fields) across all pages.
+    ///
+    /// The custom-fields section is best-effort: an API key that cannot read
+    /// it still gets the rest of the catalog, which then names it in
+    /// [`WorkspaceCatalog::missing_sections`].
     fn workspace_catalog(
         &self,
     ) -> impl Future<Output = Result<ApiResponse<WorkspaceCatalog>, ClientError>> + Send;

@@ -60,7 +60,7 @@ impl<G: UserVoiceApi> App<G> {
             Some(catalog) if !catalog.missing_sections.is_empty() => OutcomeStatus::Partial,
             _ => OutcomeStatus::Ok,
         };
-        Ok(Envelope {
+        let mut envelope = Envelope {
             status,
             data: WorkspaceContext {
                 current_user: current.data,
@@ -75,7 +75,24 @@ impl<G: UserVoiceApi> App<G> {
             guidance: None,
             pagination: None,
             rate_limit,
-        })
+        };
+        if envelope.status == OutcomeStatus::Partial {
+            envelope.guidance = Some(
+                "Retry uservoice_workspace_context with include_catalog; the rest of the \
+                 taxonomy is usable."
+                    .to_owned(),
+            );
+            envelope.next_actions = vec![NextAction {
+                tool: "uservoice_workspace_context".to_owned(),
+                reason: "Retry to recover the missing catalog section.".to_owned(),
+                idea_id: None,
+                arguments: BTreeMap::from([(
+                    "include_catalog".to_owned(),
+                    serde_json::json!(true),
+                )]),
+            }];
+        }
+        Ok(envelope)
     }
 
     pub async fn search_ideas(
