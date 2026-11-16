@@ -152,6 +152,17 @@ pub enum PartialReason {
     Failed,
 }
 
+impl PartialReason {
+    /// Every reason, so a contract test can check that the corpus documents
+    /// each token.
+    pub const ALL: &'static [Self] = &[
+        Self::Throttled,
+        Self::Forbidden,
+        Self::Unavailable,
+        Self::Failed,
+    ];
+}
+
 /// One accepted value of a `select` or `multi_select` field.
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 pub struct EnumOption {

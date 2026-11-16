@@ -131,6 +131,21 @@ fn every_reason_token_is_documented_in_the_error_reference() {
     );
 }
 
+/// The catalog's partial reason is a wire token an agent branches on, like a
+/// status or a reason token, so the corpus must name every variant.
+#[test]
+fn every_partial_reason_is_documented_in_the_envelope_reference() {
+    let reference = corpus_text("core/references/envelope.md");
+    for reason in uservoice_client::PartialReason::ALL {
+        let token = serde_json::to_value(reason).expect("a reason serializes");
+        let token = token.as_str().expect("a reason is a string token");
+        assert!(
+            reference.contains(&format!("`{token}`")),
+            "the envelope reference does not document the partial reason `{token}`"
+        );
+    }
+}
+
 #[test]
 fn every_envelope_status_is_documented_in_the_error_reference() {
     let reference = corpus_text("core/references/errors.md");

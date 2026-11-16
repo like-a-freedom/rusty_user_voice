@@ -97,8 +97,9 @@ impl<G: UserVoiceApi> App<G> {
                     false,
                 ),
                 Some(uservoice_client::PartialReason::Unavailable) => (
-                    "The custom fields are not available from this API. The rest of the taxonomy \
-                     is usable; continue with search_ideas instead of retrying.",
+                    "The custom fields are not available to this client (a missing endpoint or \
+                     an unexpected response). The rest of the taxonomy is usable; continue with \
+                     search_ideas instead of retrying.",
                     false,
                 ),
                 _ => (

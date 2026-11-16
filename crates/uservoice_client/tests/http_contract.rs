@@ -318,6 +318,48 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
     );
 }
 
+/// A response this client cannot use (a validation error or a body that does
+/// not decode) is permanent until the client or the tenant changes, so it is
+/// `unavailable`, not `failed`.
+#[tokio::test]
+async fn unusable_custom_fields_responses_are_unavailable() {
+    let fixture = include_str!("fixtures/workspace.json");
+    for (label, response) in [
+        ("validation", ResponseTemplate::new(422)),
+        (
+            "decode",
+            ResponseTemplate::new(200)
+                .set_body_raw(r#"{"custom_fields":"not-an-array"}"#, "application/json"),
+        ),
+    ] {
+        let server = MockServer::start().await;
+        for endpoint in &["forums", "categories", "statuses", "labels"] {
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v2/admin/{endpoint}")))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+                .mount(&server)
+                .await;
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v2/admin/custom_fields"))
+            .respond_with(response)
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let catalog = fixture_client(&server)
+            .workspace_catalog()
+            .await
+            .expect("catalog")
+            .data;
+        assert_eq!(
+            catalog.partial_reason,
+            Some(PartialReason::Unavailable),
+            "{label} must not invite a retry"
+        );
+    }
+}
+
 /// A 404 (or a response this client cannot decode) is not a reason to retry:
 /// the catalog says so instead of inviting another identical call.
 #[tokio::test]
