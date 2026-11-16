@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-16
+
 ### Added
 
 - `ideas update` and `uservoice_update_idea` can set Idea custom fields (`cf_*`). `--custom-field cf_tfs_link=https://...` sends a string, `--custom-field-json cf_reviewed=true` sends a JSON literal (numbers and booleans, or `null` to clear; a timestamp takes a quoted date or RFC 3339 string and a unix number is rejected; an admin select takes the admin id; a select's options ship with the catalog), and MCP callers pass the `custom_fields` map. The values go into the update body as top-level keys — the only shape the API writes; a nested object is accepted with a 200 and silently ignored. A key that is not `cf_`-shaped is rejected before the request instead of writing nothing, the preview lists each field's before and after, and the values are part of the apply fingerprint.
