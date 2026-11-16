@@ -65,23 +65,23 @@ jobs:
           - os_name: Linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            bin_names: uservoice-mcp_uservoice-cli_linux_x86_64
+            suffix: linux_x86_64
           - os_name: Linux-arm64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bin_names: uservoice-mcp_uservoice-cli_linux_arm64
+            suffix: linux_arm64
           - os_name: macOS-x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-            bin_names: uservoice-mcp_uservoice-cli_macos_x86_64
+            suffix: macos_x86_64
           - os_name: macOS-aarch64
             os: macos-latest
             target: aarch64-apple-darwin
-            bin_names: uservoice-mcp_uservoice-cli_macos_aarch64
+            suffix: macos_aarch64
           - os_name: Windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin_names: uservoice-mcp_uservoice-cli_windows_x86_64
+            suffix: windows_x86_64
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -101,24 +101,22 @@ jobs:
         run: |
           mkdir -p app/${{ matrix.platform.target }}
           cp target/${{ matrix.platform.target }}/release/uservoice-mcp \
-             app/${{ matrix.platform.target }}/uservoice-mcp
+             app/${{ matrix.platform.target }}/uservoice-mcp_${{ matrix.platform.suffix }}
           cp target/${{ matrix.platform.target }}/release/uservoice-cli \
-             app/${{ matrix.platform.target }}/uservoice-cli
+             app/${{ matrix.platform.target }}/uservoice-cli_${{ matrix.platform.suffix }}
 
       - name: Prepare artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path app/${{ matrix.platform.target }}
-          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-mcp.exe" "app/${{ matrix.platform.target }}/uservoice-mcp.exe"
-          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-cli.exe" "app/${{ matrix.platform.target }}/uservoice-cli.exe"
+          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-mcp.exe" "app/${{ matrix.platform.target }}/uservoice-mcp_${{ matrix.platform.suffix }}.exe"
+          Copy-Item "target/${{ matrix.platform.target }}/release/uservoice-cli.exe" "app/${{ matrix.platform.target }}/uservoice-cli_${{ matrix.platform.suffix }}.exe"
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3.0.2
         with:
           tag_name: ${{ github.ref_name }}
-          files: |
-            app/${{ matrix.platform.target }}/uservoice-mcp*
-            app/${{ matrix.platform.target }}/uservoice-cli*
+          files: app/${{ matrix.platform.target }}/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
