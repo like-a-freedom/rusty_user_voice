@@ -136,11 +136,43 @@ pub struct Label {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// Why a catalog section is missing.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PartialReason {
+    /// The API throttled the read. Retrying after the reset is reasonable.
+    Throttled,
+    /// The API key cannot read the section. Retrying will not help.
+    Forbidden,
+    /// Another failure. Retrying later is reasonable.
+    Failed,
+}
+
+/// One accepted value of a `select` or `multi_select` field.
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+pub struct EnumOption {
+    pub id: Option<i64>,
+    pub label: Option<String>,
+    /// Present on `numeric_enum` options only.
+    pub numeric_value: Option<f64>,
+    pub is_default: Option<bool>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// One custom field definition, as `GET /admin/custom_fields` lists it.
 ///
-/// `key` is what an update body must carry (`cf_tfs_link`), `field_type` and
-/// `value_type` say how the value is shaped (`string` + `url`, `boolean`,
-/// `timestamp` + `date`, `select` + `admin`, ...).
+/// `key` is what an update body must carry (`cf_tfs_link`). The value shape
+/// follows `field_type` and `value_type`:
+///
+/// - `string`, `text`, and `url` take a JSON string.
+/// - `number` takes a JSON number, `boolean` a JSON boolean.
+/// - `timestamp` takes a quoted date or RFC 3339 string; a unix number is
+///   rejected by the API.
+/// - `select` with `value_type: admin` takes the admin's numeric id.
+/// - `select` and `multi_select` list their accepted options in
+///   [`Self::string_enum_values`] or [`Self::numeric_enum_values`].
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 pub struct CustomField {
     pub key: String,
@@ -152,6 +184,10 @@ pub struct CustomField {
     pub field_type: Option<String>,
     pub value_type: Option<String>,
     pub object_type: Option<String>,
+    #[serde(default)]
+    pub string_enum_values: Vec<EnumOption>,
+    #[serde(default)]
+    pub numeric_enum_values: Vec<EnumOption>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -170,6 +206,11 @@ pub struct WorkspaceCatalog {
     /// catalog is still usable, and the name says what is absent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_sections: Vec<String>,
+    /// Why the missing sections are absent, so a caller can tell a throttle
+    /// (retry) from a permission problem (do not retry). `None` when every
+    /// section loaded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial_reason: Option<PartialReason>,
 }
 
 #[derive(Debug, Deserialize)]

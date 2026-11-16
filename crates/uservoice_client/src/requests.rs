@@ -96,6 +96,10 @@ pub struct UpdateSuggestionRequest {
     /// The API reads them as properties of the update body itself, next to
     /// `title` and `body`, so they are flattened into the request. A nested
     /// `custom_fields` object is accepted with a 200 and silently ignored.
+    ///
+    /// Keys must look like `cf_*` and must not repeat a sibling field name
+    /// (`title`, `body`, `links`): a duplicate would produce two JSON keys.
+    /// The application layer validates the keys before it gets here.
     #[serde(flatten)]
     pub custom_fields: std::collections::BTreeMap<String, serde_json::Value>,
 }

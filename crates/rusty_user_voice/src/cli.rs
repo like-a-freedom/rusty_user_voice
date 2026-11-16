@@ -129,7 +129,8 @@ pub enum Command {
     /// Start here. Every Forum, Category, Status, and Label ID used later comes
     /// from this call.
     Workspace {
-        /// Also load Forums, Categories, Statuses, and Labels.
+        /// Also load Forums, Categories, Statuses, Labels, and the Idea custom
+        /// fields.
         #[arg(long, default_value_t = true)]
         include_catalog: bool,
     },
@@ -357,8 +358,9 @@ pub struct UpdateArgs {
     pub remove_label_ids: Vec<i64>,
     #[arg(long)]
     pub internal_note: Option<String>,
-    /// Set a custom field by key. Repeatable. The value is sent as a JSON
-    /// string: --custom-field cf_tfs_link=<https://example.com/item/1>
+    /// Set a custom field by key. Repeatable. The value is always sent as a
+    /// string; use --custom-field-json for numbers, booleans, and null:
+    /// --custom-field cf_tfs_link=<https://example.com/item/1>
     #[arg(long = "custom-field", value_name = "KEY=VALUE")]
     pub custom_field: Vec<String>,
     /// Set a custom field from a JSON literal. Repeatable; use it for numbers,

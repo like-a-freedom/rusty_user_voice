@@ -23,13 +23,13 @@ Load the principal and the taxonomy.
 
 | Parameter | Meaning |
 |---|---|
-| `include_catalog` | Also load Forums, Categories, Statuses, Labels, and the Idea custom fields (keys, types) |
+| `include_catalog` | Also load the taxonomy, including the Idea custom fields |
 
-Call it first. Every ID used later comes from the catalog it returns. The
-`custom_fields` section names the keys an update can set, so pick a key from
-there instead of guessing one — the API ignores a key the tenant has not
-defined. A section the API refuses is listed in `missing_sections`, and the
-status is then `partial`.
+Call it first. Every ID used later comes from the catalog. `custom_fields`
+names the keys an update can set, so pick one there: the API ignores an
+undefined key. If a section cannot be read, `missing_sections` names it, the
+status is `partial`, and `partial_reason` says whether a retry helps
+(`throttled`, `failed`) or not (`forbidden`).
 
 ## uservoice_search_ideas
 
@@ -91,7 +91,7 @@ continuation before passing it back.
 
 ## uservoice_update_idea
 
-Change an Idea in two calls. Preview first, then apply.
+Change an Idea in two calls.
 
 | Parameter | Meaning |
 |---|---|
@@ -105,7 +105,7 @@ Change an Idea in two calls. Preview first, then apply.
 | `add_label_ids` | Label IDs to attach |
 | `remove_label_ids` | Label IDs to detach |
 | `internal_note` | Note for admins, invisible to supporters |
-| `custom_fields` | Custom field values by key (`cf_tfs_link`): strings, numbers, booleans, `null` clears. Get the keys from `uservoice_workspace_context` |
+| `custom_fields` | Values by key (`cf_tfs_link`): string, number, boolean, `null` clears. A timestamp is a quoted date string, an admin select the admin id, a multi-select an array. Keys and select options come from `uservoice_workspace_context` |
 | `change_id` | Change ID from the preview. Required for apply |
 | `confirmation` | The literal string `apply`. Required for apply |
 | `idempotency_key` | Caller-chosen key. Required for apply |

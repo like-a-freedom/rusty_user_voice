@@ -31,7 +31,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
     #[tool(
         name = "uservoice_workspace_context",
-        description = "Serve this first: it verifies the token and returns the principal plus the taxonomy (forums, categories, statuses, labels). With include_catalog it also lists the Idea custom field keys and types that update_idea needs. It does not search ideas; call search_ideas for that.",
+        description = "Call this first: it verifies the token and returns the principal plus the taxonomy (forums, categories, statuses, labels). With include_catalog it also lists the Idea custom field keys and types that update_idea needs. It does not search ideas; call search_ideas for that.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -73,7 +73,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_get_idea_context",
-        description = "Load one idea by idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial envelope names what is unavailable in missing_sections and stays usable.",
+        description = "Load one idea by idea_id. detail_level=full adds comments, internal notes, status history, feedback records, activity, and optionally supporters. A partial envelope names what is unavailable in missing_sections and stays usable. Next: update_idea in preview mode once the context is clear.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -157,7 +157,7 @@ impl<G: UserVoiceApi> UserVoiceMcpServer<G> {
 
     #[tool(
         name = "uservoice_record_feedback",
-        description = "Record one piece of feedback with provenance. Needs a unique idempotency_key and at least one of idea_id, user_id, or user_email. It adds a record and does not edit the idea.",
+        description = "Record one piece of feedback with provenance. Needs a unique idempotency_key and at least one of idea_id, user_id, or user_email. It adds a record and does not edit the idea; use update_idea for that.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,

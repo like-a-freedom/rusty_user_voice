@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::de::DeserializeOwned;
 use uservoice_client::{
     ActivityEntry, ApiResponse, ClientError, Comment, ContextPage, CreateFeedbackRecordRequest,
-    CreateStatusUpdateRequest, FeedbackRecord, IdeaId, LabelId, Note, Pagination,
+    CreateStatusUpdateRequest, FeedbackRecord, IdeaId, LabelId, Note, Pagination, PartialReason,
     SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter,
     UpdateSuggestionRequest, User, UserVoiceApi, WorkspaceCatalog,
 };
@@ -27,6 +27,7 @@ pub struct FakeUserVoiceApi {
     updates: Arc<Mutex<Vec<UpdateSuggestionRequest>>>,
     custom_fields: Arc<Mutex<BTreeMap<String, serde_json::Value>>>,
     missing_catalog_sections: Arc<Vec<String>>,
+    missing_catalog_reason: Option<PartialReason>,
     fail_write_number: Arc<Mutex<Option<usize>>>,
 }
 
@@ -42,6 +43,7 @@ impl FakeUserVoiceApi {
             updates: Arc::new(Mutex::new(Vec::new())),
             custom_fields: Arc::new(Mutex::new(BTreeMap::new())),
             missing_catalog_sections: Arc::new(Vec::new()),
+            missing_catalog_reason: None,
             fail_write_number: Arc::new(Mutex::new(None)),
         }
     }
@@ -57,9 +59,10 @@ impl FakeUserVoiceApi {
 
     /// The catalog could not load `section`, as the client reports when the
     /// API refuses the custom-fields read.
-    pub fn with_missing_catalog_sections(section: &str) -> Self {
+    pub fn with_missing_catalog_sections(section: &str, reason: PartialReason) -> Self {
         Self {
             missing_catalog_sections: Arc::new(vec![section.to_owned()]),
+            missing_catalog_reason: Some(reason),
             ..Self::complete()
         }
     }
@@ -144,7 +147,8 @@ impl UserVoiceApi for FakeUserVoiceApi {
                 {"key": "cf_tfs_link", "name": "TFS link", "field_type": "string", "value_type": "url", "object_type": "suggestions"},
                 {"key": "cf_reviewed", "name": "Reviewed", "field_type": "boolean", "object_type": "suggestions"}
             ],
-            "missing_sections": self.missing_catalog_sections.as_ref().clone()
+            "missing_sections": self.missing_catalog_sections.as_ref().clone(),
+            "partial_reason": self.missing_catalog_reason
         }))))
     }
 

@@ -3,7 +3,7 @@ mod support;
 use std::sync::Arc;
 
 use rusty_user_voice::{App, CollectIdeasParams, DetailLevel, GetIdeaContextParams, OutcomeStatus};
-use uservoice_client::IdeaId;
+use uservoice_client::{IdeaId, PartialReason};
 
 #[tokio::test]
 async fn full_context_contains_all_requested_sections() {
@@ -394,6 +394,7 @@ async fn workspace_context_is_partial_when_a_catalog_section_is_missing() {
     let app = App::new(
         Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(
             "custom_fields",
+            PartialReason::Failed,
         )),
         2,
     );
@@ -410,13 +411,85 @@ async fn workspace_context_is_partial_when_a_catalog_section_is_missing() {
     );
     let catalog = result.data.catalog.expect("catalog");
     assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
+    assert_eq!(catalog.partial_reason, Some(PartialReason::Failed));
     assert!(
         result
             .guidance
             .as_deref()
-            .is_some_and(|guidance| guidance.contains("Retry")),
+            .is_some_and(|guidance| guidance.contains("retry")),
         "a partial load must tell the caller what to do: {:?}",
         result.guidance
     );
-    assert_eq!(result.next_actions[0].tool, "uservoice_workspace_context");
+    assert_eq!(
+        result.next_actions[0].tool, "uservoice_search_ideas",
+        "the forward action stays first"
+    );
+    assert_eq!(
+        result.next_actions[1].tool, "uservoice_workspace_context",
+        "a transient failure also offers the retry, second"
+    );
+}
+
+#[tokio::test]
+async fn a_throttled_catalog_offers_a_retry_without_losing_the_forward_action() {
+    let app = App::new(
+        Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(
+            "custom_fields",
+            PartialReason::Throttled,
+        )),
+        2,
+    );
+    let result = app
+        .workspace_context(rusty_user_voice::WorkspaceContextParams {
+            include_catalog: true,
+        })
+        .await
+        .expect("workspace");
+    assert_eq!(result.status, OutcomeStatus::Partial);
+    assert_eq!(
+        result.next_actions[0].tool, "uservoice_search_ideas",
+        "a throttle must not replace the forward action"
+    );
+    assert_eq!(result.next_actions[1].tool, "uservoice_workspace_context");
+    assert!(
+        result
+            .guidance
+            .as_deref()
+            .is_some_and(|guidance| guidance.contains("throttled")),
+        "the guidance must name the throttle: {:?}",
+        result.guidance
+    );
+}
+
+#[tokio::test]
+async fn a_forbidden_catalog_does_not_offer_a_retry() {
+    let app = App::new(
+        Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(
+            "custom_fields",
+            PartialReason::Forbidden,
+        )),
+        2,
+    );
+    let result = app
+        .workspace_context(rusty_user_voice::WorkspaceContextParams {
+            include_catalog: true,
+        })
+        .await
+        .expect("workspace");
+    assert_eq!(result.status, OutcomeStatus::Partial);
+    assert_eq!(
+        result.next_actions.len(),
+        1,
+        "retrying a permission problem would loop: {:?}",
+        result.next_actions
+    );
+    assert_eq!(result.next_actions[0].tool, "uservoice_search_ideas");
+    assert!(
+        result
+            .guidance
+            .as_deref()
+            .is_some_and(|guidance| guidance.contains("cannot read")),
+        "the guidance must explain the permission problem: {:?}",
+        result.guidance
+    );
 }

@@ -77,20 +77,40 @@ impl<G: UserVoiceApi> App<G> {
             rate_limit,
         };
         if envelope.status == OutcomeStatus::Partial {
-            envelope.guidance = Some(
-                "Retry uservoice_workspace_context with include_catalog; the rest of the \
-                 taxonomy is usable."
-                    .to_owned(),
-            );
-            envelope.next_actions = vec![NextAction {
-                tool: "uservoice_workspace_context".to_owned(),
-                reason: "Retry to recover the missing catalog section.".to_owned(),
-                idea_id: None,
-                arguments: BTreeMap::from([(
-                    "include_catalog".to_owned(),
-                    serde_json::json!(true),
-                )]),
-            }];
+            // A throttle is worth a retry, a permission problem is not. The
+            // forward action stays first; the retry is an addition.
+            let reason = envelope
+                .data
+                .catalog
+                .as_ref()
+                .and_then(|catalog| catalog.partial_reason);
+            let (guidance, retry) = match reason {
+                Some(uservoice_client::PartialReason::Throttled) => (
+                    "The API throttled the custom fields read. The rest of the taxonomy is \
+                     usable; retry uservoice_workspace_context after the rate limit resets.",
+                    true,
+                ),
+                Some(uservoice_client::PartialReason::Forbidden) => (
+                    "This API key cannot read the custom fields. The rest of the taxonomy is \
+                     usable; continue with search_ideas, and ask an admin for the read scope if \
+                     you need the field list.",
+                    false,
+                ),
+                _ => (
+                    "The custom fields could not be read. The rest of the taxonomy is usable; \
+                     retry uservoice_workspace_context later.",
+                    true,
+                ),
+            };
+            envelope.guidance = Some(guidance.to_owned());
+            if retry {
+                envelope.next_actions.push(NextAction {
+                    tool: "uservoice_workspace_context".to_owned(),
+                    reason: "Retry to recover the missing custom field list.".to_owned(),
+                    idea_id: None,
+                    arguments: BTreeMap::new(),
+                });
+            }
         }
         Ok(envelope)
     }

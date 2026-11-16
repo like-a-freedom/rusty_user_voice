@@ -58,7 +58,7 @@ in `status` and in the error payload.
 
 | Tool | `data` |
 |---|---|
-| `uservoice_workspace_context` | `current_user` and, with `include_catalog`, the catalog: `forums`, `categories`, `statuses`, `labels`, `custom_fields` (keys and types for Idea updates), and `missing_sections` |
+| `uservoice_workspace_context` | `current_user` and, with `include_catalog`, the catalog: `forums`, `categories`, `statuses`, `labels`, `custom_fields` (keys, types, and select options for Idea updates), `missing_sections`, and `partial_reason` |
 | `uservoice_search_ideas` | `ideas`, a list of compact summaries |
 | `uservoice_get_idea_context` | `suggestion`, `comments`, `notes`, `supporters`, `feedback_records`, `status_updates`, `activity`, `missing_sections` |
 | `uservoice_collect_ideas` | `ideas`, a list of Idea contexts |
@@ -67,7 +67,9 @@ in `status` and in the error payload.
 | `uservoice_record_feedback` | The recorded Feedback Record |
 
 `missing_sections` names every section that failed to load, in the Idea
-context and in the workspace catalog. It is empty on a complete result.
+context and in the workspace catalog. It is empty on a complete result. The
+catalog's `partial_reason` says whether retrying can help: `throttled` and
+`failed` are worth a retry, `forbidden` is not.
 
 ## applied_operations
 

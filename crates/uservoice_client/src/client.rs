@@ -4,9 +4,10 @@ use serde::de::DeserializeOwned;
 use crate::{
     AccessToken, ActivityEntry, ApiEndpoint, ApiResponse, ClientError, Comment, ContextPage,
     Continuation, CreateFeedbackRecordRequest, CreateNoteRequest, CreateStatusUpdateRequest,
-    FeedbackRecord, IdeaId, LabelId, Note, Pagination, RateLimit, SearchSuggestionsRequest,
-    StatusUpdate, Suggestion, SuggestionPage, Supporter, UpdateSuggestionRequest,
-    UpstreamPagination, User, UserVoiceApi, WorkspaceCatalog, continuation_from_link,
+    FeedbackRecord, IdeaId, LabelId, Note, Pagination, PartialReason, RateLimit,
+    SearchSuggestionsRequest, StatusUpdate, Suggestion, SuggestionPage, Supporter,
+    UpdateSuggestionRequest, UpstreamPagination, User, UserVoiceApi, WorkspaceCatalog,
+    continuation_from_link,
     models::{
         ActivityResponse, CategoriesResponse, CommentsResponse, CustomFieldsResponse,
         FeedbackRecordsResponse, ForumsResponse, LabelsResponse, MutationResponse, NotesResponse,
@@ -423,7 +424,7 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
         // account fields, which an idea update cannot set. The section is
         // best-effort: a key that cannot read it still gets the taxonomy, and
         // the catalog names what is missing.
-        let (custom_fields, custom_fields_rate_limit, missing_sections) = match self
+        let (custom_fields, custom_fields_rate_limit, missing_sections, partial_reason) = match self
             .collect_catalog(
                 "custom_fields",
                 &[("object_type", "suggestions")],
@@ -431,16 +432,30 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
             )
             .await
         {
-            Ok(page) => (page.data, page.rate_limit, Vec::new()),
-            // A throttle is a transient reason to retry, so the budget
-            // travels with the partial catalog instead of being dropped.
-            Err(ClientError::RateLimited { rate_limit }) => {
-                tracing::warn!("cannot read the Idea custom fields: rate limited");
-                (Vec::new(), rate_limit, vec!["custom_fields".to_owned()])
-            }
+            Ok(page) => (page.data, page.rate_limit, Vec::new(), None),
+            // The reason travels with the section: a throttle is worth a
+            // retry, a permission problem is not. A throttle also keeps its
+            // budget so the caller can pace the retry.
             Err(error) => {
+                let reason = match &error {
+                    ClientError::RateLimited { .. } => PartialReason::Throttled,
+                    ClientError::Authentication { .. } => PartialReason::Forbidden,
+                    ClientError::HttpStatus { status } if *status == 401 || *status == 403 => {
+                        PartialReason::Forbidden
+                    }
+                    _ => PartialReason::Failed,
+                };
                 tracing::warn!("cannot read the Idea custom fields: {error}");
-                (Vec::new(), None, vec!["custom_fields".to_owned()])
+                let rate_limit = match error {
+                    ClientError::RateLimited { rate_limit } => rate_limit,
+                    _ => None,
+                };
+                (
+                    Vec::new(),
+                    rate_limit,
+                    vec!["custom_fields".to_owned()],
+                    Some(reason),
+                )
             }
         };
         Ok(ApiResponse {
@@ -451,6 +466,7 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
                 labels: labels.data,
                 custom_fields,
                 missing_sections,
+                partial_reason,
             },
             rate_limit: custom_fields_rate_limit
                 .or(labels.rate_limit)

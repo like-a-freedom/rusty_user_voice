@@ -60,7 +60,7 @@ fn update_tool_documents_custom_fields() {
 }
 
 #[test]
-fn tool_descriptions_stay_short_and_name_the_next_step() {
+fn tool_descriptions_fit_the_budget_and_name_the_custom_field_paths() {
     // An agent reads the tool list before it reads any corpus page, so each
     // description has to fit in a few sentences. The shared rules (pagination,
     // preview before apply) live in the server instructions and the corpus.
@@ -225,7 +225,11 @@ async fn mcp_tool_calls_return_structured_output() {
             serde_json::json!({
                 "mode": "preview",
                 "idea_id": 101,
-                "title": "Clearer export title"
+                "title": "Clearer export title",
+                "custom_fields": {
+                    "cf_tfs_link": "https://example.com/tfs/1",
+                    "cf_reviewed": true
+                }
             }),
         ),
         (
@@ -258,6 +262,18 @@ async fn mcp_tool_calls_return_structured_output() {
             .expect("tool call");
         assert_ne!(result.is_error, Some(true), "{name} returned a tool error");
         let output = result.structured_content.expect("structuredContent");
+        if name == "uservoice_update_idea" {
+            let fields: Vec<&str> = output["data"]["changes"]
+                .as_array()
+                .expect("changes")
+                .iter()
+                .filter_map(|change| change["field"].as_str())
+                .collect();
+            assert!(
+                fields.contains(&"cf_tfs_link"),
+                "rmcp must decode custom_fields into the update map: {fields:?}"
+            );
+        }
         let tool = tools
             .iter()
             .find(|tool| tool.name == name)

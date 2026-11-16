@@ -1,8 +1,8 @@
 use chrono::{TimeZone, Utc};
 use std::collections::BTreeMap;
 use uservoice_client::{
-    AccessToken, ApiEndpoint, ForumId, IdeaId, ReqwestUserVoiceClient, SearchSuggestionsRequest,
-    UpdateSuggestionRequest, UserVoiceApi,
+    AccessToken, ApiEndpoint, ForumId, IdeaId, PartialReason, ReqwestUserVoiceClient,
+    SearchSuggestionsRequest, UpdateSuggestionLinks, UpdateSuggestionRequest, UserVoiceApi,
 };
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -179,6 +179,11 @@ async fn update_suggestion_sends_custom_fields_as_top_level_keys() {
         .update_suggestion(
             IdeaId::new(101),
             UpdateSuggestionRequest {
+                title: Some("Clearer export title".to_owned()),
+                links: Some(UpdateSuggestionLinks {
+                    forum: Some(ForumId::new(11)),
+                    ..Default::default()
+                }),
                 custom_fields: BTreeMap::from([
                     (
                         "cf_tfs_link".to_owned(),
@@ -197,6 +202,11 @@ async fn update_suggestion_sends_custom_fields_as_top_level_keys() {
         .expect("update");
 
     let body = seen.lock().expect("body lock").clone().expect("body");
+    assert_eq!(body["title"], "Clearer export title");
+    assert_eq!(
+        body["links"]["forum"], 11,
+        "flattening custom fields must not disturb the sibling links object"
+    );
     assert_eq!(body["cf_tfs_link"], "https://example.com/tfs/1");
     assert_eq!(body["cf_reviewed"], true);
     assert_eq!(
@@ -267,7 +277,12 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
         .respond_with(ResponseTemplate::new(200).set_body_raw(
             r#"{"custom_fields":[
                 {"key":"cf_tfs_link","name":"TFS link","field_type":"string","value_type":"url","object_type":"suggestions"},
-                {"key":"cf_reviewed","name":"Reviewed","field_type":"boolean","object_type":"suggestions"}
+                {"key":"cf_reviewed","name":"Reviewed","field_type":"boolean","object_type":"suggestions"},
+                {"key":"cf_product_manager_name","name":"Product Manager","field_type":"select","value_type":"admin","object_type":"suggestions"},
+                {"key":"cf_project","name":"Project","field_type":"select","value_type":"string_enum","object_type":"suggestions",
+                 "string_enum_values":[{"id":7,"label":"Alpha","is_default":true}]},
+                {"key":"cf_goal","name":"Goal","field_type":"select","value_type":"numeric_enum","object_type":"suggestions",
+                 "numeric_enum_values":[{"id":8,"label":"Grow","numeric_value":1.5}]}
             ]}"#,
             "application/json",
         ))
@@ -280,13 +295,22 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
         .await
         .expect("catalog")
         .data;
-    assert_eq!(catalog.custom_fields.len(), 2);
+    assert_eq!(catalog.custom_fields.len(), 5);
     assert_eq!(catalog.custom_fields[0].key, "cf_tfs_link");
     assert_eq!(catalog.custom_fields[0].value_type.as_deref(), Some("url"));
     assert_eq!(
         catalog.custom_fields[1].field_type.as_deref(),
         Some("boolean")
     );
+    let project = &catalog.custom_fields[3];
+    assert_eq!(project.string_enum_values[0].id, Some(7));
+    assert_eq!(
+        project.string_enum_values[0].label.as_deref(),
+        Some("Alpha")
+    );
+    assert_eq!(project.string_enum_values[0].is_default, Some(true));
+    let goal = &catalog.custom_fields[4];
+    assert_eq!(goal.numeric_enum_values[0].numeric_value, Some(1.5));
 }
 
 /// The custom-fields endpoint is an extra: a key that cannot read it must
@@ -318,6 +342,11 @@ async fn workspace_catalog_degrades_when_custom_fields_are_forbidden() {
     assert_eq!(catalog.forums[0].id.get(), 11);
     assert!(catalog.custom_fields.is_empty());
     assert_eq!(catalog.missing_sections, vec!["custom_fields".to_owned()]);
+    assert_eq!(
+        catalog.partial_reason,
+        Some(PartialReason::Forbidden),
+        "a permission problem must not be presented as retryable"
+    );
 }
 
 /// A throttle while reading the custom fields still lets the caller retry:
@@ -352,6 +381,11 @@ async fn a_rate_limited_custom_fields_read_keeps_its_budget() {
     assert_eq!(
         response.data.missing_sections,
         vec!["custom_fields".to_owned()]
+    );
+    assert_eq!(
+        response.data.partial_reason,
+        Some(PartialReason::Throttled),
+        "a throttle must be presented as retryable"
     );
     let rate_limit = response
         .rate_limit
