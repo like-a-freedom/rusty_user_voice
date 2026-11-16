@@ -46,13 +46,17 @@ fn current_state_dir(home: &Path) -> PathBuf {
 
 /// Mirrors `platform_state_dir`'s platform branch: `dirs::state_dir()` on
 /// Linux (XDG, with `XDG_STATE_HOME` removed by [`migrate_cmd`]), the local
-/// data dir on macOS.
+/// data dir on macOS, `%LOCALAPPDATA%` on Windows.
 fn platform_state_root(home: &Path) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         home.join("Library/Application Support")
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        home.join("AppData/Local")
+    }
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
     {
         home.join(".local/state")
     }
@@ -136,6 +140,38 @@ fn a_data_command_moves_the_legacy_config_into_the_current_path() {
             & 0o777;
         assert_eq!(mode, 0o600, "the migrated API-key file must be owner-only");
     }
+    std::fs::remove_dir_all(&home).ok();
+}
+
+#[test]
+fn a_blocked_migration_falls_back_to_reading_the_legacy_config_in_place() {
+    // The move cannot complete: `~/.config/rusty_user_voice` is occupied by a
+    // plain file, so `create_dir_all` fails. The credential must still load
+    // from the legacy path — a failed rename may not read as a lost login.
+    let home = unique_home("fallback");
+    seed_legacy_config(&home);
+    let blocker = home.join(".config/rusty_user_voice");
+    std::fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+    std::fs::write(&blocker, "not a directory").unwrap();
+
+    let out = data_command(&home).output().expect("run the command");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        !stderr.contains("USERVOICE_API_KEY is required"),
+        "an unmovable legacy config must still be read in place: {stderr}"
+    );
+    assert!(
+        !stderr.contains("not_logged_in"),
+        "a failed migration must not log the install out: {stderr}"
+    );
+    let legacy = std::fs::read_to_string(legacy_config(&home))
+        .expect("the legacy config must stay where it is");
+    assert!(legacy.contains("legacy-key"));
+    assert!(
+        !blocker.is_dir(),
+        "the blocker file must not have been replaced"
+    );
     std::fs::remove_dir_all(&home).ok();
 }
 

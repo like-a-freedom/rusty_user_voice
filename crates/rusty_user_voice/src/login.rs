@@ -97,17 +97,27 @@ pub(crate) fn prompt_password(label: &str) -> Result<String, String> {
 
 /// Note when a binary-dir config exists: `load_yaml` tries it *first*, so it
 /// shadows the user file — and after `logout` a credential may remain there.
-pub fn shadow_note(config_path: &Path) -> Option<String> {
+///
+/// `config_path` is the user file the caller knows about; it is `None` when
+/// there is no current file to point at (a failed migration left only the
+/// legacy one), in which case the note does not name a path that does not
+/// exist.
+pub fn shadow_note(config_path: Option<&Path>) -> Option<String> {
     let deployed = binary_config_path()?;
-    if deployed.exists() {
-        Some(format!(
+    if !deployed.exists() {
+        return None;
+    }
+    Some(match config_path {
+        Some(config_path) => format!(
             "note: {} exists and takes precedence over {} on load — remove it if login seems ignored (or if logout should clear the credential)",
             deployed.display(),
             config_path.display()
-        ))
-    } else {
-        None
-    }
+        ),
+        None => format!(
+            "note: {} holds a credential of its own — logout cannot remove it",
+            deployed.display()
+        ),
+    })
 }
 
 /// Resolved input for one `login` run. Built from clap flags in `bin/cli.rs`;
@@ -299,7 +309,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
             "check permissions on ~/.config/rusty_user_voice".to_owned(),
         )
     })?;
-    let shadow_warning = shadow_note(&config_path);
+    let shadow_warning = shadow_note(Some(&config_path));
     Ok(LoginResult {
         config_path,
         base_url: url,
@@ -343,7 +353,9 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
             })?;
             return Ok(LogoutResult {
                 removed: legacy_path,
-                shadow_warning: shadow_note(&path),
+                // No current file to point at — the note must not name a
+                // path that does not exist.
+                shadow_warning: shadow_note(None),
             });
         }
         return Err(CommandError::new(
@@ -360,14 +372,21 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
         )
     })?;
     // A config left at the legacy path holds a credential too. Logout removes
-    // it, or the secret would survive the logout.
+    // it, or the secret would survive the logout — and it must not report
+    // success when the removal failed.
     if let Some(legacy) = legacy_user_config_dir() {
         let legacy_path = legacy.join(CONFIG_FILENAME);
         if legacy_path.exists() {
-            let _ = std::fs::remove_file(&legacy_path);
+            std::fs::remove_file(&legacy_path).map_err(|d| {
+                CommandError::new(
+                    REASON_IO_ERROR,
+                    format!("cannot remove {}: {d}", legacy_path.display()),
+                    "check permissions on ~/.config/rusty-user-voice".to_owned(),
+                )
+            })?;
         }
     }
-    let shadow_warning = shadow_note(&path);
+    let shadow_warning = shadow_note(Some(&path));
     Ok(LogoutResult {
         removed: path,
         shadow_warning,

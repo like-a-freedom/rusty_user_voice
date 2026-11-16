@@ -88,11 +88,17 @@ fn with_home<F: FnOnce()>(dir: &std::path::Path, f: F) {
     let orig_home = std::env::var("HOME").ok();
     let orig_api_key = std::env::var("USERVOICE_API_KEY").ok();
     let orig_base_url = std::env::var("USERVOICE_BASE_URL").ok();
+    let orig_state = std::env::var("XDG_STATE_HOME").ok();
+    let orig_data = std::env::var("XDG_DATA_HOME").ok();
     // SAFETY: single-threaded test, all vars restored before return
     unsafe {
         std::env::set_var("HOME", dir);
         std::env::remove_var("USERVOICE_API_KEY");
         std::env::remove_var("USERVOICE_BASE_URL");
+        // Keep the platform state default inside the temp home: otherwise the
+        // legacy state-dir migration could rename the real user's ledger.
+        std::env::set_var("XDG_STATE_HOME", dir.join(".state"));
+        std::env::set_var("XDG_DATA_HOME", dir.join(".data"));
     }
     f();
     unsafe {
@@ -107,6 +113,14 @@ fn with_home<F: FnOnce()>(dir: &std::path::Path, f: F) {
         match orig_base_url {
             Some(v) => std::env::set_var("USERVOICE_BASE_URL", v),
             None => std::env::remove_var("USERVOICE_BASE_URL"),
+        }
+        match orig_state {
+            Some(v) => std::env::set_var("XDG_STATE_HOME", v),
+            None => std::env::remove_var("XDG_STATE_HOME"),
+        }
+        match orig_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
         }
     }
 }
