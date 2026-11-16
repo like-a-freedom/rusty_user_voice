@@ -136,12 +136,32 @@ pub struct Label {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// One custom field definition, as `GET /admin/custom_fields` lists it.
+///
+/// `key` is what an update body must carry (`cf_tfs_link`), `field_type` and
+/// `value_type` say how the value is shaped (`string` + `url`, `boolean`,
+/// `timestamp` + `date`, `select` + `admin`, ...).
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+pub struct CustomField {
+    pub key: String,
+    pub name: Option<String>,
+    pub field_type: String,
+    pub value_type: Option<String>,
+    pub object_type: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 pub struct WorkspaceCatalog {
     pub forums: Vec<Forum>,
     pub categories: Vec<Category>,
     pub statuses: Vec<Status>,
     pub labels: Vec<Label>,
+    /// The custom fields defined for ideas, so a caller can pick a key
+    /// instead of guessing one.
+    #[serde(default)]
+    pub custom_fields: Vec<CustomField>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +188,13 @@ pub(crate) struct StatusesResponse {
 #[derive(Debug, Deserialize)]
 pub(crate) struct LabelsResponse {
     pub labels: Vec<Label>,
+    #[serde(default)]
+    pub pagination: UpstreamPagination,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CustomFieldsResponse {
+    pub custom_fields: Vec<CustomField>,
     #[serde(default)]
     pub pagination: UpstreamPagination,
 }

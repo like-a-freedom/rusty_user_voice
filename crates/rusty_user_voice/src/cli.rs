@@ -357,6 +357,15 @@ pub struct UpdateArgs {
     pub remove_label_ids: Vec<i64>,
     #[arg(long)]
     pub internal_note: Option<String>,
+    /// Set a custom field by key: `--custom-field cf_tfs_link=https://...`.
+    /// Repeatable. The value is sent as a JSON string.
+    #[arg(long = "custom-field", value_name = "KEY=VALUE")]
+    pub custom_field: Vec<String>,
+    /// Set a custom field from a JSON literal:
+    /// `--custom-field-json cf_reviewed=true` (also numbers, `null` to clear).
+    /// Repeatable.
+    #[arg(long = "custom-field-json", value_name = "KEY=JSON")]
+    pub custom_field_json: Vec<String>,
     #[arg(long)]
     pub change_id: Option<uuid::Uuid>,
     #[arg(long)]

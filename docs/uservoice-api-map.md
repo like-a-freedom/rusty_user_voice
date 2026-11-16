@@ -7,7 +7,7 @@ This document maps the `uservoice_client` crate methods to their UserVoice Admin
 | Client method | HTTP | Path | Notes |
 |---|---|---|---|
 | `current_user()` | GET | `/admin/users/current` | Auth probe; returns authenticated principal |
-| `workspace_catalog()` | GET | `/admin/forums`, `/admin/categories`, `/admin/statuses`, `/admin/labels` | Drains all pages per collection |
+| `workspace_catalog()` | GET | `/admin/forums`, `/admin/categories`, `/admin/statuses`, `/admin/labels`, `/admin/custom_fields?object_type=suggestions` | Drains all pages per collection |
 | `search_suggestions(request)` | GET | `/admin/suggestions` | Query params: `q`, `forum`, `category`, `status`, `label`, `state`, `sort`, `updated_after`, `updated_before`, `per_page`, `cursor` |
 | `suggestion(idea_id)` | GET | `/admin/suggestions/{id}` | `includes=labels,forums,status_updates,users,statuses,categories,attachments` |
 | `comments(idea_id, per_page)` | GET | `/admin/comments` | `suggestion={id}`, follows pagination |
@@ -21,7 +21,7 @@ This document maps the `uservoice_client` crate methods to their UserVoice Admin
 
 | Client method | HTTP | Path | Notes |
 |---|---|---|---|
-| `update_suggestion(idea_id, request)` | PUT | `/admin/suggestions/{id}` | JSON body: title, body, links |
+| `update_suggestion(idea_id, request)` | PUT | `/admin/suggestions/{id}` | JSON body: title, body, links, and each custom field as a top-level `cf_*` key (a nested `custom_fields` object is silently ignored) |
 | `attach_label(idea_id, label_id)` | POST | `/admin/labels/attach` | JSON body: `{links: {label, suggestion}}` |
 | `detach_label(idea_id, label_id)` | POST | `/admin/labels/detach` | JSON body: `{links: {label, suggestion}}` |
 | `create_note(idea_id, body)` | POST | `/admin/notes` | JSON body: body, body_mime_type, links.suggestion |

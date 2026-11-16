@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -218,6 +220,11 @@ pub struct UpdateIdeaParams {
     #[serde(default)]
     pub remove_label_ids: Vec<LabelId>,
     pub internal_note: Option<String>,
+    /// Custom field values keyed by their UserVoice key (`cf_...`), sent as
+    /// top-level properties of the update body. A `null` value clears the
+    /// field.
+    #[serde(default)]
+    pub custom_fields: BTreeMap<String, serde_json::Value>,
     pub change_id: Option<ChangeId>,
     pub confirmation: Option<String>,
     pub idempotency_key: Option<String>,
@@ -236,6 +243,7 @@ impl UpdateIdeaParams {
             add_label_ids,
             remove_label_ids: Vec::new(),
             internal_note: None,
+            custom_fields: BTreeMap::new(),
             change_id: None,
             confirmation: None,
             idempotency_key: None,
@@ -259,11 +267,63 @@ impl UpdateIdeaParams {
             add_label_ids: preview.add_label_ids.clone(),
             remove_label_ids: preview.remove_label_ids.clone(),
             internal_note: preview.internal_note.clone(),
+            custom_fields: preview.custom_fields.clone(),
             change_id: Some(change_id),
             confirmation: Some(confirmation.to_owned()),
             idempotency_key: Some(idempotency_key.to_owned()),
         }
     }
+}
+
+/// Parse repeatable `KEY=VALUE` custom field arguments.
+///
+/// `plain` values are sent as JSON strings; `json` values are parsed as JSON
+/// literals, which is how numbers, booleans, timestamps, and `null` (clear a
+/// field) reach the API. Keys must look like UserVoice custom field keys
+/// (`cf_` plus letters, digits, or underscores): the API silently ignores any
+/// other body key, so a typo would otherwise read as a successful update.
+pub fn parse_custom_fields(
+    plain: &[String],
+    json: &[String],
+) -> Result<BTreeMap<String, serde_json::Value>, String> {
+    let mut fields = BTreeMap::new();
+    for (raw, is_json) in plain
+        .iter()
+        .map(|raw| (raw, false))
+        .chain(json.iter().map(|raw| (raw, true)))
+    {
+        let (key, value) = raw.split_once('=').ok_or_else(|| {
+            format!("expected KEY=VALUE in `{raw}` — use --custom-field cf_key=value")
+        })?;
+        if !is_custom_field_key(key) {
+            return Err(format!(
+                "`{key}` is not a custom field key — expected `cf_` followed by letters, \
+                 digits, or underscores (for example `cf_tfs_link`)"
+            ));
+        }
+        if fields.contains_key(key) {
+            return Err(format!(
+                "`{key}` is set more than once — merge the values into one argument"
+            ));
+        }
+        let value = if is_json {
+            serde_json::from_str(value).map_err(|error| {
+                format!("`{key}` has an invalid JSON literal `{value}`: {error}")
+            })?
+        } else {
+            serde_json::Value::String(value.to_owned())
+        };
+        fields.insert(key.to_owned(), value);
+    }
+    Ok(fields)
+}
+
+/// Whether `key` is a UserVoice custom field key. The API ignores every body
+/// key it does not recognise, so this is the guard against a silent no-op.
+pub(crate) fn is_custom_field_key(key: &str) -> bool {
+    key.strip_prefix("cf_").is_some_and(|rest| {
+        !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]

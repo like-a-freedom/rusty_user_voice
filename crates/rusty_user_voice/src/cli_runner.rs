@@ -184,6 +184,9 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
                 }
             }
             IdeasCommand::Update(args) => {
+                let custom_fields =
+                    crate::parse_custom_fields(&args.custom_field, &args.custom_field_json)
+                        .map_err(AppError::Validation)?;
                 let result = app
                     .update_idea(crate::UpdateIdeaParams {
                         mode: args.mode.into(),
@@ -206,6 +209,7 @@ pub async fn run_cli_with_stderr<G: UserVoiceApi>(
                             .map(uservoice_client::LabelId::new)
                             .collect(),
                         internal_note: args.internal_note,
+                        custom_fields,
                         change_id: args.change_id.map(crate::ChangeId::from_uuid),
                         confirmation: args.confirmation,
                         idempotency_key: args.idempotency_key,

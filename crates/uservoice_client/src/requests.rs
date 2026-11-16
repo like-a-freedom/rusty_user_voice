@@ -91,6 +91,13 @@ pub struct UpdateSuggestionRequest {
     pub body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub links: Option<UpdateSuggestionLinks>,
+    /// Custom field values keyed by their UserVoice key (`cf_...`).
+    ///
+    /// The API reads them as properties of the update body itself, next to
+    /// `title` and `body`, so they are flattened into the request. A nested
+    /// `custom_fields` object is accepted with a 200 and silently ignored.
+    #[serde(flatten)]
+    pub custom_fields: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

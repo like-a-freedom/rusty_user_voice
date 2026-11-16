@@ -35,6 +35,24 @@ fn registered_tools_match_approved_seven() {
 }
 
 #[test]
+fn update_tool_documents_custom_fields() {
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let tools = UserVoiceMcpServer::new(app).tool_definitions();
+    let update = tools
+        .iter()
+        .find(|tool| tool.name == "uservoice_update_idea")
+        .expect("update tool");
+    let properties = update.input_schema["properties"]
+        .as_object()
+        .expect("properties");
+    let field = properties
+        .get("custom_fields")
+        .expect("custom_fields is part of the update contract");
+    assert_eq!(field["type"], "object");
+    assert_eq!(field["additionalProperties"], serde_json::json!(true));
+}
+
+#[test]
 fn read_tools_have_closed_input_schemas_and_explicit_risk_hints() {
     let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
     let tools = UserVoiceMcpServer::new(app).tool_definitions();

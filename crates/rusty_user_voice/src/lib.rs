@@ -26,7 +26,7 @@ pub use contracts::{
     AppliedOperation, ChangeId, CollectIdeasParams, DetailLevel, Envelope, FeedbackChannel,
     FieldChange, GetIdeaContextParams, IdeaContext, IdeaPage, MutationMode, MutationResult,
     NextAction, OutcomeStatus, PublishIdeaUpdateParams, RecordFeedbackParams, SearchIdeasParams,
-    ToolName, UpdateIdeaParams, WorkspaceContext, WorkspaceContextParams,
+    ToolName, UpdateIdeaParams, WorkspaceContext, WorkspaceContextParams, parse_custom_fields,
 };
 pub use ledger::{DiskChangeLedger, FixedClock, PreviewKind, PreviewRecord};
 pub use login::{

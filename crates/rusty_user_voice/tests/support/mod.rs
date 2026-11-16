@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -24,6 +24,8 @@ pub struct FakeUserVoiceApi {
     failed_sections: Arc<HashSet<&'static str>>,
     suggestion_updated_at: Arc<Mutex<DateTime<Utc>>>,
     writes: Arc<Mutex<Vec<RecordedWrite>>>,
+    updates: Arc<Mutex<Vec<UpdateSuggestionRequest>>>,
+    custom_fields: Arc<Mutex<BTreeMap<String, serde_json::Value>>>,
     fail_write_number: Arc<Mutex<Option<usize>>>,
 }
 
@@ -36,8 +38,23 @@ impl FakeUserVoiceApi {
                 "2025-02-03T04:05:06Z".parse().expect("fixture date"),
             )),
             writes: Arc::new(Mutex::new(Vec::new())),
+            updates: Arc::new(Mutex::new(Vec::new())),
+            custom_fields: Arc::new(Mutex::new(BTreeMap::new())),
             fail_write_number: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The idea carries these custom field values, as the API would return
+    /// them: top-level `cf_*` keys on the suggestion.
+    pub fn with_custom_fields(fields: BTreeMap<String, serde_json::Value>) -> Self {
+        Self {
+            custom_fields: Arc::new(Mutex::new(fields)),
+            ..Self::complete()
+        }
+    }
+
+    pub fn recorded_updates(&self) -> Vec<UpdateSuggestionRequest> {
+        self.updates.lock().expect("updates lock").clone()
     }
 
     #[allow(dead_code)]
@@ -111,7 +128,11 @@ impl UserVoiceApi for FakeUserVoiceApi {
             "forums": [{"id": 11, "name": "Product Ideas", "is_public": false}],
             "categories": [{"id": 12, "name": "Reporting", "links": {"forum": 11}}],
             "statuses": [{"id": 13, "name": "Planned", "is_open": true}],
-            "labels": [{"id": 14, "name": "export"}]
+            "labels": [{"id": 14, "name": "export"}],
+            "custom_fields": [
+                {"key": "cf_tfs_link", "name": "TFS link", "field_type": "string", "value_type": "url", "object_type": "suggestions"},
+                {"key": "cf_reviewed", "name": "Reviewed", "field_type": "boolean", "object_type": "suggestions"}
+            ]
         }))))
     }
 
@@ -218,8 +239,9 @@ impl UserVoiceApi for FakeUserVoiceApi {
     async fn update_suggestion(
         &self,
         _idea_id: IdeaId,
-        _request: UpdateSuggestionRequest,
+        request: UpdateSuggestionRequest,
     ) -> Result<ApiResponse<Suggestion>, ClientError> {
+        self.updates.lock().expect("updates lock").push(request);
         self.record_write("update_suggestion", false)?;
         self.suggestion(IdeaId::new(101)).await
     }
@@ -285,7 +307,7 @@ impl UserVoiceApi for FakeUserVoiceApi {
 
 impl FakeUserVoiceApi {
     fn suggestion_value(&self) -> Suggestion {
-        json(serde_json::json!({
+        let mut value: Suggestion = json(serde_json::json!({
             "id": 101,
             "title": "Export roadmap as CSV",
             "body": "We need a portable report.",
@@ -309,7 +331,15 @@ impl FakeUserVoiceApi {
                 "created_by": 7,
                 "assigned_owner": null
             }
-        }))
+        }));
+        value.extra.extend(
+            self.custom_fields
+                .lock()
+                .expect("custom fields lock")
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        value
     }
 }
 

@@ -32,8 +32,9 @@ pub use ids::{
     StatusUpdateId, SupporterId, UserId,
 };
 pub use models::{
-    ActivityEntry, Category, Comment, ContextPage, FeedbackRecord, Forum, Label, Note, Status,
-    StatusUpdate, Suggestion, SuggestionLinks, SuggestionPage, Supporter, User, WorkspaceCatalog,
+    ActivityEntry, Category, Comment, ContextPage, CustomField, FeedbackRecord, Forum, Label, Note,
+    Status, StatusUpdate, Suggestion, SuggestionLinks, SuggestionPage, Supporter, User,
+    WorkspaceCatalog,
 };
 pub use pagination::{
     Continuation, Pagination, UpstreamPagination, continuation_from_link, validate_per_page,

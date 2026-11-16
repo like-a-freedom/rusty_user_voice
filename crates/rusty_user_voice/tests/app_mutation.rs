@@ -1,5 +1,6 @@
 mod support;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
@@ -323,6 +324,7 @@ async fn preview_with_body_and_internal_note_records_changes() {
             add_label_ids: Vec::new(),
             remove_label_ids: Vec::new(),
             internal_note: Some("Internal note".to_owned()),
+            custom_fields: Default::default(),
             change_id: None,
             confirmation: None,
             idempotency_key: None,
@@ -350,6 +352,7 @@ async fn preview_rejects_when_no_changes() {
             add_label_ids: Vec::new(),
             remove_label_ids: Vec::new(),
             internal_note: None,
+            custom_fields: Default::default(),
             change_id: None,
             confirmation: None,
             idempotency_key: None,
@@ -374,6 +377,7 @@ async fn preview_rejects_change_id() {
             add_label_ids: Vec::new(),
             remove_label_ids: Vec::new(),
             internal_note: None,
+            custom_fields: Default::default(),
             change_id: Some(ChangeId::new()),
             confirmation: None,
             idempotency_key: None,
@@ -404,4 +408,156 @@ async fn apply_rejects_missing_confirmation() {
         .await
         .expect_err("should fail");
     assert!(err.to_string().contains("confirmation"));
+}
+
+fn update_with_custom_fields(
+    idea_id: IdeaId,
+    pairs: &[(&str, serde_json::Value)],
+) -> UpdateIdeaParams {
+    let mut params = UpdateIdeaParams::preview(idea_id, None, Vec::new());
+    for (key, value) in pairs {
+        params
+            .custom_fields
+            .insert((*key).to_owned(), value.clone());
+    }
+    params
+}
+
+#[tokio::test]
+async fn preview_shows_a_custom_field_before_and_after() {
+    let api = support::FakeUserVoiceApi::with_custom_fields(BTreeMap::from([(
+        "cf_tfs_link".to_owned(),
+        serde_json::json!("https://old.example.com/1"),
+    )]));
+    let directory = TempDir::new().expect("state directory");
+    let app = App::new(Arc::new(api.clone()), 2)
+        .with_ledger(Arc::new(DiskChangeLedger::new(
+            directory.path().join("ledger"),
+        )))
+        .with_clock(Arc::new(FixedClock::new(
+            Utc.with_ymd_and_hms(2026, 7, 24, 10, 0, 0).unwrap(),
+        )));
+
+    let params = update_with_custom_fields(
+        IdeaId::new(101),
+        &[(
+            "cf_tfs_link",
+            serde_json::json!("https://new.example.com/2"),
+        )],
+    );
+    let result = app.update_idea(params).await.expect("preview");
+
+    let change = result
+        .data
+        .changes
+        .iter()
+        .find(|change| change.field == "cf_tfs_link")
+        .expect("the custom field must appear in the diff");
+    assert_eq!(change.before.as_deref(), Some("https://old.example.com/1"));
+    assert_eq!(change.after.as_deref(), Some("https://new.example.com/2"));
+    assert!(api.recorded_writes().is_empty());
+}
+
+#[tokio::test]
+async fn a_custom_field_alone_is_a_valid_change() {
+    let (_directory, _api, app) = mutation_app();
+    let params = update_with_custom_fields(
+        IdeaId::new(101),
+        &[("cf_reviewed", serde_json::json!(true))],
+    );
+    let result = app
+        .update_idea(params)
+        .await
+        .expect("a custom field is a requested change");
+    assert_eq!(result.data.changes.len(), 1);
+    assert_eq!(result.data.changes[0].field, "cf_reviewed");
+    assert_eq!(result.data.changes[0].before, None);
+    assert_eq!(result.data.changes[0].after.as_deref(), Some("true"));
+}
+
+#[tokio::test]
+async fn apply_sends_custom_field_values() {
+    let (_directory, api, app) = mutation_app();
+    let preview_params = update_with_custom_fields(
+        IdeaId::new(101),
+        &[
+            (
+                "cf_tfs_link",
+                serde_json::json!("https://example.com/tfs/9"),
+            ),
+            ("cf_reviewed", serde_json::json!(true)),
+        ],
+    );
+    let preview = app
+        .update_idea(preview_params.clone())
+        .await
+        .expect("preview");
+    app.update_idea(UpdateIdeaParams::apply_from_preview(
+        &preview_params,
+        preview.data.change_id.expect("change id"),
+        "apply",
+        "custom-fields-apply-1",
+    ))
+    .await
+    .expect("apply");
+
+    let sent = api.recorded_updates().pop().expect("one update call");
+    assert_eq!(
+        sent.custom_fields.get("cf_tfs_link"),
+        Some(&serde_json::json!("https://example.com/tfs/9"))
+    );
+    assert_eq!(
+        sent.custom_fields.get("cf_reviewed"),
+        Some(&serde_json::json!(true))
+    );
+    assert!(sent.title.is_none());
+}
+
+#[tokio::test]
+async fn preview_rejects_a_custom_field_key_the_api_would_ignore() {
+    // MCP callers send the map directly, without the CLI parser, so the app
+    // is the choke point: the API ignores unknown keys and would report a
+    // successful update that wrote nothing.
+    let (_directory, api, app) = mutation_app();
+    let params =
+        update_with_custom_fields(IdeaId::new(101), &[("tfs_link", serde_json::json!("x"))]);
+    let error = app
+        .update_idea(params)
+        .await
+        .expect_err("the API would silently ignore this key");
+    assert!(error.to_string().contains("cf_"), "{error}");
+    assert!(api.recorded_writes().is_empty());
+}
+
+#[tokio::test]
+async fn apply_rejects_custom_fields_that_differ_from_the_preview() {
+    let (_directory, api, app) = mutation_app();
+    let preview_params = update_with_custom_fields(
+        IdeaId::new(101),
+        &[("cf_tfs_link", serde_json::json!("one"))],
+    );
+    let preview = app
+        .update_idea(preview_params.clone())
+        .await
+        .expect("preview");
+
+    let mut apply = UpdateIdeaParams::apply_from_preview(
+        &preview_params,
+        preview.data.change_id.expect("change id"),
+        "apply",
+        "custom-fields-apply-2",
+    );
+    apply
+        .custom_fields
+        .insert("cf_tfs_link".to_owned(), serde_json::json!("two"));
+    let error = app
+        .update_idea(apply)
+        .await
+        .expect_err("a different custom field value is a different payload");
+    assert!(
+        error
+            .to_string()
+            .contains("apply payload does not match the preview")
+    );
+    assert!(api.recorded_writes().is_empty());
 }

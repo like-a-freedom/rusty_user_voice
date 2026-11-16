@@ -1048,3 +1048,116 @@ async fn search_all_explicit_ndjson_output_works() {
         .collect();
     assert_eq!(lines.len(), 2, "should have 2 NDJSON lines");
 }
+
+#[test]
+fn custom_field_arguments_parse_strings_and_json_literals() {
+    let fields = rusty_user_voice::parse_custom_fields(
+        &["cf_tfs_link=https://example.com/workitems/1?x=2".to_owned()],
+        &[
+            "cf_reviewed=true".to_owned(),
+            "cf_points=5".to_owned(),
+            "cf_clear=null".to_owned(),
+        ],
+    )
+    .expect("valid custom fields");
+    assert_eq!(
+        fields["cf_tfs_link"],
+        serde_json::json!("https://example.com/workitems/1?x=2"),
+        "a plain value stays a string, `=` inside it included"
+    );
+    assert_eq!(fields["cf_reviewed"], serde_json::json!(true));
+    assert_eq!(fields["cf_points"], serde_json::json!(5));
+    assert_eq!(fields["cf_clear"], serde_json::Value::Null);
+}
+
+#[test]
+fn custom_field_arguments_reject_what_the_api_would_ignore() {
+    // The API silently ignores a body key it does not recognise, so a typo in
+    // the key would look like a successful update. Fail before the request.
+    for (raw, expected) in [
+        ("tfs_link=x", "cf_"),
+        ("cf_=x", "cf_"),
+        ("cf_bad-key=x", "cf_"),
+        ("cf_no_separator", "KEY=VALUE"),
+    ] {
+        let error =
+            rusty_user_voice::parse_custom_fields(&[raw.to_owned()], &[]).expect_err("must reject");
+        assert!(
+            error.contains(expected),
+            "`{raw}` should mention `{expected}`: {error}"
+        );
+    }
+
+    let error = rusty_user_voice::parse_custom_fields(
+        &["cf_tfs_link=one".to_owned()],
+        &["cf_tfs_link=\"two\"".to_owned()],
+    )
+    .expect_err("a key may be set once");
+    assert!(error.contains("more than once"), "{error}");
+
+    let error = rusty_user_voice::parse_custom_fields(&[], &["cf_reviewed=maybe".to_owned()])
+        .expect_err("not a JSON literal");
+    assert!(error.contains("JSON"), "{error}");
+}
+
+#[tokio::test]
+async fn update_preview_wires_custom_fields_from_the_command_line() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2).with_ledger(Arc::new(
+        rusty_user_voice::DiskChangeLedger::new(directory.path().join("ledger")),
+    ));
+    let cli = Cli::try_parse_from([
+        "uservoice-cli",
+        "--output",
+        "json",
+        "ideas",
+        "update",
+        "101",
+        "--mode",
+        "preview",
+        "--custom-field",
+        "cf_tfs_link=https://example.com/workitems/1",
+        "--custom-field-json",
+        "cf_reviewed=true",
+    ])
+    .expect("the flags parse");
+    let mut output = Vec::new();
+    run_cli(&app, &checkpoints, cli, &mut output)
+        .await
+        .expect("preview");
+
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json envelope");
+    let changed: Vec<&str> = value["data"]["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .filter_map(|change| change["field"].as_str())
+        .collect();
+    assert!(changed.contains(&"cf_tfs_link"), "{changed:?}");
+    assert!(changed.contains(&"cf_reviewed"), "{changed:?}");
+}
+
+#[tokio::test]
+async fn update_rejects_a_custom_field_key_the_api_would_ignore() {
+    let directory = tempfile::tempdir().expect("state directory");
+    let checkpoints = CheckpointStore::new(directory.path().join("checkpoints"));
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2).with_ledger(Arc::new(
+        rusty_user_voice::DiskChangeLedger::new(directory.path().join("ledger")),
+    ));
+    let cli = Cli::try_parse_from([
+        "uservoice-cli",
+        "ideas",
+        "update",
+        "101",
+        "--mode",
+        "preview",
+        "--custom-field",
+        "tfs_link=https://example.com/workitems/1",
+    ])
+    .expect("the flags parse");
+    let error = run_cli(&app, &checkpoints, cli, &mut Vec::new())
+        .await
+        .expect_err("the API would ignore this key");
+    assert!(error.to_string().contains("cf_"), "{error}");
+}

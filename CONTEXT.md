@@ -36,6 +36,15 @@ _Avoid_: tag (outside UserVoice docs), category
 The lifecycle state of an idea (open, closed, archived, etc.).
 _Avoid_: state, stage
 
+**Custom Field**:
+A `cf_*` value on an Idea (`cf_tfs_link`, `cf_reviewed`, a planned release
+date, ...). The API carries the values as top-level keys of the update body and
+silently ignores any key it does not recognise, so `ideas update` rejects a key
+that is not `cf_`-shaped instead of writing nothing. Preview shows each field's
+before and after; the value is part of the apply fingerprint.
+`uservoice_workspace_context` lists the available keys and types.
+_Avoid_: metadata, attribute
+
 **Supporter**:
 A user who has upvoted or subscribed to an idea. Distinct from the author.
 _Avoid_: subscriber, voter, follower

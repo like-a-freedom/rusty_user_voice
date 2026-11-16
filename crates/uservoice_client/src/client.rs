@@ -8,9 +8,10 @@ use crate::{
     StatusUpdate, Suggestion, SuggestionPage, Supporter, UpdateSuggestionRequest,
     UpstreamPagination, User, UserVoiceApi, WorkspaceCatalog, continuation_from_link,
     models::{
-        ActivityResponse, CategoriesResponse, CommentsResponse, FeedbackRecordsResponse,
-        ForumsResponse, LabelsResponse, MutationResponse, NotesResponse, StatusUpdatesResponse,
-        StatusesResponse, SuggestionsResponse, SupportersResponse, UsersResponse,
+        ActivityResponse, CategoriesResponse, CommentsResponse, CustomFieldsResponse,
+        FeedbackRecordsResponse, ForumsResponse, LabelsResponse, MutationResponse, NotesResponse,
+        StatusUpdatesResponse, StatusesResponse, SuggestionsResponse, SupportersResponse,
+        UsersResponse,
     },
     validate_per_page,
 };
@@ -177,6 +178,7 @@ impl ReqwestUserVoiceClient {
     async fn collect_catalog<T, R>(
         &self,
         path: &str,
+        extra_query: &[(&str, &str)],
         extract: impl Fn(R) -> (Vec<T>, UpstreamPagination),
     ) -> Result<ApiResponse<Vec<T>>, ClientError>
     where
@@ -187,6 +189,11 @@ impl ReqwestUserVoiceClient {
         let mut rate_limit = None;
         for _ in 0..Self::MAX_CATALOG_PAGES {
             let mut query = vec![("per_page".to_owned(), "100".to_owned())];
+            query.extend(
+                extra_query
+                    .iter()
+                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned())),
+            );
             match &continuation {
                 Some(Continuation::Cursor { cursor }) => {
                     query.push(("cursor".to_owned(), cursor.clone()));
@@ -393,24 +400,33 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
 
     async fn workspace_catalog(&self) -> Result<ApiResponse<WorkspaceCatalog>, ClientError> {
         let forums = self
-            .collect_catalog("forums", |value: ForumsResponse| {
+            .collect_catalog("forums", &[], |value: ForumsResponse| {
                 (value.forums, value.pagination)
             })
             .await?;
         let categories = self
-            .collect_catalog("categories", |value: CategoriesResponse| {
+            .collect_catalog("categories", &[], |value: CategoriesResponse| {
                 (value.categories, value.pagination)
             })
             .await?;
         let statuses = self
-            .collect_catalog("statuses", |value: StatusesResponse| {
+            .collect_catalog("statuses", &[], |value: StatusesResponse| {
                 (value.statuses, value.pagination)
             })
             .await?;
         let labels = self
-            .collect_catalog("labels", |value: LabelsResponse| {
+            .collect_catalog("labels", &[], |value: LabelsResponse| {
                 (value.labels, value.pagination)
             })
+            .await?;
+        // Only the fields an idea can carry: the endpoint also lists user and
+        // account fields, which an idea update cannot set.
+        let custom_fields = self
+            .collect_catalog(
+                "custom_fields",
+                &[("object_type", "suggestions")],
+                |value: CustomFieldsResponse| (value.custom_fields, value.pagination),
+            )
             .await?;
         Ok(ApiResponse {
             data: WorkspaceCatalog {
@@ -418,9 +434,11 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
                 categories: categories.data,
                 statuses: statuses.data,
                 labels: labels.data,
+                custom_fields: custom_fields.data,
             },
-            rate_limit: labels
+            rate_limit: custom_fields
                 .rate_limit
+                .or(labels.rate_limit)
                 .or(statuses.rate_limit)
                 .or(categories.rate_limit)
                 .or(forums.rate_limit),

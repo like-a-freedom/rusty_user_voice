@@ -361,3 +361,30 @@ async fn collect_ideas_empty_results_returns_no_results() {
         .expect("collect");
     assert_eq!(result.status, OutcomeStatus::NoResults);
 }
+
+#[tokio::test]
+async fn workspace_context_lists_custom_fields_a_caller_can_set() {
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let result = app
+        .workspace_context(rusty_user_voice::WorkspaceContextParams {
+            include_catalog: true,
+        })
+        .await
+        .expect("workspace");
+    let catalog = result.data.catalog.expect("catalog");
+    let keys: Vec<&str> = catalog
+        .custom_fields
+        .iter()
+        .map(|field| field.key.as_str())
+        .collect();
+    assert!(
+        keys.contains(&"cf_tfs_link"),
+        "the idea custom fields must travel with the catalog: {keys:?}"
+    );
+    let link = catalog
+        .custom_fields
+        .iter()
+        .find(|field| field.key == "cf_tfs_link")
+        .expect("cf_tfs_link");
+    assert_eq!(link.value_type.as_deref(), Some("url"));
+}

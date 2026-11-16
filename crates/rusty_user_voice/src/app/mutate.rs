@@ -20,6 +20,7 @@ struct UpdateIntent<'a> {
     add_label_ids: &'a [uservoice_client::LabelId],
     remove_label_ids: &'a [uservoice_client::LabelId],
     internal_note: &'a Option<String>,
+    custom_fields: &'a std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl<'a> From<&'a UpdateIdeaParams> for UpdateIntent<'a> {
@@ -34,6 +35,7 @@ impl<'a> From<&'a UpdateIdeaParams> for UpdateIntent<'a> {
             add_label_ids: &params.add_label_ids,
             remove_label_ids: &params.remove_label_ids,
             internal_note: &params.internal_note,
+            custom_fields: &params.custom_fields,
         }
     }
 }
@@ -141,8 +143,13 @@ impl<G: UserVoiceApi> App<G> {
             title: params.title.clone(),
             body: params.body.clone(),
             links,
+            custom_fields: params.custom_fields.clone(),
         };
-        if fields.title.is_some() || fields.body.is_some() || fields.links.is_some() {
+        if fields.title.is_some()
+            || fields.body.is_some()
+            || fields.links.is_some()
+            || !fields.custom_fields.is_empty()
+        {
             if let Err(error) = self.api.update_suggestion(params.idea_id, fields).await {
                 return self
                     .finish_partial(
@@ -266,7 +273,21 @@ fn ledger<G: UserVoiceApi>(app: &App<G>) -> Result<&crate::DiskChangeLedger, App
         .ok_or_else(|| AppError::State("mutation ledger is not configured".to_owned()))
 }
 
+fn validate_custom_field_keys(params: &UpdateIdeaParams) -> Result<(), AppError> {
+    for key in params.custom_fields.keys() {
+        if !crate::contracts::is_custom_field_key(key) {
+            return Err(AppError::Validation(format!(
+                "`{key}` is not a custom field key — expected `cf_` followed by letters, \
+                 digits, or underscores (for example `cf_tfs_link`); the API ignores any \
+                 other key, so this update would silently write nothing"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_preview(params: &UpdateIdeaParams) -> Result<(), AppError> {
+    validate_custom_field_keys(params)?;
     if params.change_id.is_some()
         || params.confirmation.is_some()
         || params.idempotency_key.is_some()
@@ -283,6 +304,7 @@ fn validate_preview(params: &UpdateIdeaParams) -> Result<(), AppError> {
         && params.add_label_ids.is_empty()
         && params.remove_label_ids.is_empty()
         && params.internal_note.is_none()
+        && params.custom_fields.is_empty()
     {
         return Err(AppError::Validation(
             "preview requires at least one requested change".to_owned(),
@@ -292,6 +314,7 @@ fn validate_preview(params: &UpdateIdeaParams) -> Result<(), AppError> {
 }
 
 fn validate_apply(params: &UpdateIdeaParams) -> Result<(crate::ChangeId, String), AppError> {
+    validate_custom_field_keys(params)?;
     if params.confirmation.as_deref() != Some("apply") {
         return Err(AppError::Validation(
             "apply requires confirmation=\"apply\"".to_owned(),
@@ -385,5 +408,22 @@ fn field_changes(
             after: Some(value.clone()),
         });
     }
+    for (key, value) in &params.custom_fields {
+        changes.push(FieldChange {
+            field: key.clone(),
+            before: render_custom_field_value(current.extra.get(key)),
+            after: render_custom_field_value(Some(value)),
+        });
+    }
     changes
+}
+
+/// A custom field value as the diff shows it: text as-is, `null` as "no
+/// value", anything else (numbers, booleans, timestamps) as its JSON form.
+fn render_custom_field_value(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
 }

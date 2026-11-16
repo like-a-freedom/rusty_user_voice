@@ -1,7 +1,8 @@
 use chrono::{TimeZone, Utc};
+use std::collections::BTreeMap;
 use uservoice_client::{
     AccessToken, ApiEndpoint, ForumId, IdeaId, ReqwestUserVoiceClient, SearchSuggestionsRequest,
-    UserVoiceApi,
+    UpdateSuggestionRequest, UserVoiceApi,
 };
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -153,6 +154,53 @@ async fn single_idea_preserves_sideloaded_associations() {
     );
 }
 
+#[tokio::test]
+async fn update_suggestion_sends_custom_fields_as_top_level_keys() {
+    use std::sync::{Arc, Mutex};
+
+    let server = MockServer::start().await;
+    let seen: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
+    let sink = Arc::clone(&seen);
+    Mock::given(method("PUT"))
+        .and(path("/api/v2/admin/suggestions/101"))
+        .respond_with(move |request: &wiremock::Request| {
+            *sink.lock().expect("body lock") =
+                Some(serde_json::from_slice(&request.body).expect("json body"));
+            ResponseTemplate::new(200).set_body_raw(
+                include_str!("fixtures/suggestions_page.json"),
+                "application/json",
+            )
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    fixture_client(&server)
+        .update_suggestion(
+            IdeaId::new(101),
+            UpdateSuggestionRequest {
+                custom_fields: BTreeMap::from([
+                    (
+                        "cf_tfs_link".to_owned(),
+                        serde_json::json!("https://example.com/tfs/1"),
+                    ),
+                    ("cf_reviewed".to_owned(), serde_json::json!(true)),
+                ]),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("update");
+
+    let body = seen.lock().expect("body lock").clone().expect("body");
+    assert_eq!(body["cf_tfs_link"], "https://example.com/tfs/1");
+    assert_eq!(body["cf_reviewed"], true);
+    assert!(
+        body.get("custom_fields").is_none(),
+        "custom fields must be top-level keys; a nested object is silently ignored upstream: {body}"
+    );
+}
+
 fn fixture_client(server: &MockServer) -> ReqwestUserVoiceClient {
     ReqwestUserVoiceClient::new(
         ApiEndpoint::parse(&server.uri()).expect("loopback endpoint"),
@@ -172,6 +220,13 @@ async fn workspace_catalog_drains_all_taxonomy_collections() {
             .mount(&server)
             .await;
     }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(r#"{"custom_fields":[]}"#, "application/json"),
+        )
+        .mount(&server)
+        .await;
 
     let catalog = fixture_client(&server)
         .workspace_catalog()
@@ -182,6 +237,44 @@ async fn workspace_catalog_drains_all_taxonomy_collections() {
     assert_eq!(catalog.categories[0].id.get(), 12);
     assert_eq!(catalog.statuses[0].id.get(), 13);
     assert_eq!(catalog.labels[0].id.get(), 14);
+}
+
+/// An agent that wants to set a custom field must not guess its key, so the
+/// workspace catalog carries the field definitions of the ideas object.
+#[tokio::test]
+async fn workspace_catalog_lists_the_idea_custom_fields() {
+    let server = MockServer::start().await;
+    let fixture = include_str!("fixtures/workspace.json");
+    for endpoint in &["forums", "categories", "statuses", "labels"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v2/admin/{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .and(query_param("object_type", "suggestions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"custom_fields":[
+                {"key":"cf_tfs_link","name":"TFS link","field_type":"string","value_type":"url","object_type":"suggestions"},
+                {"key":"cf_reviewed","name":"Reviewed","field_type":"boolean","object_type":"suggestions"}
+            ]}"#,
+            "application/json",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = fixture_client(&server)
+        .workspace_catalog()
+        .await
+        .expect("catalog")
+        .data;
+    assert_eq!(catalog.custom_fields.len(), 2);
+    assert_eq!(catalog.custom_fields[0].key, "cf_tfs_link");
+    assert_eq!(catalog.custom_fields[0].value_type.as_deref(), Some("url"));
+    assert_eq!(catalog.custom_fields[1].field_type, "boolean");
 }
 
 #[tokio::test]
