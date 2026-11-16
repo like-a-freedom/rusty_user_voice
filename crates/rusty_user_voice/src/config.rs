@@ -86,7 +86,7 @@ impl Settings {
                         .to_owned(),
                 )
             })?;
-        migrate_legacy_state_dir(&state_dir);
+        let state_dir = migrate_legacy_state_dir(&state_dir);
 
         // max_in_flight: CLI flag > env var > config.yaml > default(2)
         let max_in_flight = max_in_flight_override
@@ -137,7 +137,7 @@ impl Settings {
                     .to_owned(),
             )
         })?;
-        migrate_legacy_state_dir(&state_dir);
+        let state_dir = migrate_legacy_state_dir(&state_dir);
         Ok(Self {
             endpoint: ApiEndpoint::parse(base_url)?,
             token: AccessToken::parse(api_key.to_owned())?,
@@ -150,19 +150,17 @@ impl Settings {
     }
 
     fn load_yaml() -> Option<YamlConfig> {
+        // Migrate before anything else: a config left at the legacy path moves
+        // into the current one even when a deployed config next to the binary
+        // shadows the user file — otherwise `logout` would never see it.
+        migrate_legacy_user_config();
         if let Some(path) = Self::config_path()
             && let Ok(content) = std::fs::read_to_string(&path)
             && let Ok(yaml) = serde_yaml::from_str(&content)
         {
             return Some(yaml);
         }
-        // A config left at the legacy path moves into the current one before
-        // it is read, so the user keeps their login across the rename.
-        migrate_legacy_user_config();
-        Self::config_path_home().and_then(|path| {
-            let content = std::fs::read_to_string(&path).ok()?;
-            serde_yaml::from_str(&content).ok()
-        })
+        read_user_config_content().and_then(|content| serde_yaml::from_str(&content).ok())
     }
 
     fn config_path() -> Option<PathBuf> {
@@ -192,7 +190,7 @@ pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
 /// The directory is named after the crate, with underscores, the same way
 /// `rusty_azure_devops` names its own. The earlier `rusty-user-voice`
 /// spelling is read as a legacy path and migrated on first use.
-pub(crate) fn user_config_dir() -> Option<std::path::PathBuf> {
+fn user_config_dir() -> Option<std::path::PathBuf> {
     Some(home_dir()?.join(".config").join(CONFIG_DIR_NAME))
 }
 
@@ -219,36 +217,53 @@ fn legacy_platform_state_dir() -> Option<PathBuf> {
         .or_else(|| dirs::data_local_dir().map(|path| path.join(LEGACY_CONFIG_DIR_NAME)))
 }
 
-/// Move the legacy state directory into `current`, once.
+/// Move the legacy state directory into `current`, once, and return the
+/// directory to use.
 ///
 /// Only the platform default is migrated: a `state_dir` the user chose
 /// themselves (flag, env, config) is theirs to move, and renaming it would
 /// take their ledger away from the path they named.
-fn migrate_legacy_state_dir(current: &std::path::Path) {
-    if Some(current) != platform_state_dir().as_deref() {
-        return;
-    }
-    let Some(legacy) = legacy_platform_state_dir() else {
-        return;
-    };
-    migrate_state_dir_at(&legacy, current);
+fn migrate_legacy_state_dir(current: &std::path::Path) -> PathBuf {
+    migrate_state_dir(
+        current,
+        platform_state_dir().as_deref(),
+        legacy_platform_state_dir().as_deref(),
+    )
 }
 
-/// Move `legacy` to `current` when only `legacy` exists.
+/// Move `legacy` into `current` when `current` is the platform default and
+/// only `legacy` exists. Returns the directory the caller should use.
 ///
 /// The ledger is local history, not a credential: it is moved rather than
 /// left behind so previews recorded before the rename are not silently
-/// dropped. Nothing is deleted — a failure leaves both directories intact.
-fn migrate_state_dir_at(legacy: &std::path::Path, current: &std::path::Path) {
-    if legacy == current || !legacy.exists() || current.exists() {
-        return;
+/// dropped. Nothing is deleted. When the move fails, `legacy` is returned —
+/// keeping the old ledger beats starting an empty one in the new path, and a
+/// failed rename is logged too late to be seen (tracing starts after the
+/// settings load), so the caller must not depend on it.
+fn migrate_state_dir(
+    current: &std::path::Path,
+    platform_default: Option<&std::path::Path>,
+    legacy: Option<&std::path::Path>,
+) -> PathBuf {
+    if platform_default != Some(current) {
+        return current.to_owned();
     }
-    if let Err(error) = std::fs::rename(legacy, current) {
-        tracing::warn!(
-            "cannot migrate state dir {} to {}: {error}",
-            legacy.display(),
-            current.display()
-        );
+    let Some(legacy) = legacy else {
+        return current.to_owned();
+    };
+    if legacy == current || !legacy.exists() || current.exists() {
+        return current.to_owned();
+    }
+    match std::fs::rename(legacy, current) {
+        Ok(()) => current.to_owned(),
+        Err(error) => {
+            tracing::warn!(
+                "cannot migrate state dir {} to {}: {error}",
+                legacy.display(),
+                current.display()
+            );
+            legacy.to_owned()
+        }
     }
 }
 
@@ -266,10 +281,29 @@ fn home_dir() -> Option<PathBuf> {
 
 /// Move a legacy user config into the current directory.
 ///
-/// Returns the path the config was moved to, or `None` when there was
-/// nothing to migrate.
-pub(crate) fn migrate_legacy_user_config() -> Option<std::path::PathBuf> {
-    migrate_at(&legacy_user_config_dir()?, &user_config_dir()?)
+/// Does nothing when either directory cannot be resolved or there is
+/// nothing to move.
+pub(crate) fn migrate_legacy_user_config() {
+    let (Some(legacy), Some(current)) = (legacy_user_config_dir(), user_config_dir()) else {
+        return;
+    };
+    migrate_at(&legacy, &current);
+}
+
+/// Read the user-level config file: the current path first, the legacy path
+/// as a fallback.
+///
+/// The fallback covers a migration that could not complete (permissions, a
+/// concurrent writer). A rename failure must not read as a lost login, so
+/// the legacy file is read in place until the move succeeds.
+fn read_user_config_content() -> Option<String> {
+    if let Some(path) = Settings::config_path_home()
+        && let Ok(content) = std::fs::read_to_string(&path)
+    {
+        return Some(content);
+    }
+    let legacy = legacy_user_config_dir()?.join(CONFIG_FILENAME);
+    std::fs::read_to_string(legacy).ok()
 }
 
 /// Move the config of `legacy_dir` into `current_dir`.
@@ -339,8 +373,7 @@ pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
     // Migrate first: `login --force` merges the keys it does not own out of
     // the existing config, and that config may still sit at the legacy path.
     migrate_legacy_user_config();
-    let path = Settings::config_path_home()?;
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = read_user_config_content()?;
     serde_yaml::from_str(&content).ok()
 }
 
@@ -496,8 +529,8 @@ mod tests {
         )
         .unwrap();
 
-        // The migration runs against the real home directory, so the test
-        // drives the same helper the loader uses.
+        // The test drives the same helper the loader calls, against temp
+        // paths rather than the real home directory.
         let moved = migrate_at(&legacy, &current_dir(&home));
         assert_eq!(moved, Some(current_dir(&home).join(CONFIG_FILENAME)));
         assert!(
@@ -570,8 +603,9 @@ mod tests {
         std::fs::create_dir_all(legacy.join("ledger")).unwrap();
         std::fs::write(legacy.join("ledger").join("a.json"), "{}").unwrap();
 
-        migrate_state_dir_at(&legacy, &current);
+        let used = migrate_state_dir(&current, Some(&current), Some(&legacy));
 
+        assert_eq!(used, current, "the new directory is the one to use");
         assert!(!legacy.exists(), "the legacy state dir must be moved");
         let content = std::fs::read_to_string(current.join("ledger").join("a.json")).unwrap();
         assert_eq!(content, "{}");
@@ -588,8 +622,9 @@ mod tests {
         std::fs::write(legacy.join("a.json"), "old").unwrap();
         std::fs::write(current.join("a.json"), "new").unwrap();
 
-        migrate_state_dir_at(&legacy, &current);
+        let used = migrate_state_dir(&current, Some(&current), Some(&legacy));
 
+        assert_eq!(used, current);
         assert!(legacy.exists(), "the current state dir wins");
         let content = std::fs::read_to_string(current.join("a.json")).unwrap();
         assert_eq!(content, "new");
@@ -603,9 +638,51 @@ mod tests {
         let current = root.join(CONFIG_DIR_NAME);
         std::fs::create_dir_all(&current).unwrap();
 
-        migrate_state_dir_at(&legacy, &current);
-
+        assert_eq!(
+            migrate_state_dir(&current, Some(&current), Some(&legacy)),
+            current
+        );
+        assert_eq!(migrate_state_dir(&current, Some(&current), None), current);
         assert!(!legacy.exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_state_dir_migration_leaves_a_user_named_directory_alone() {
+        let root = temp_config_dir("state-named");
+        let legacy = root.join(LEGACY_CONFIG_DIR_NAME);
+        let named = root.join("my-own-ledger");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("a.json"), "old").unwrap();
+
+        // The resolved dir is not the platform default, so it is the user's
+        // and the legacy ledger must stay where they left it.
+        let platform_default = root.join(CONFIG_DIR_NAME);
+        let used = migrate_state_dir(&named, Some(&platform_default), Some(&legacy));
+
+        assert_eq!(used, named, "the directory the user named is returned");
+        assert!(legacy.exists(), "the legacy ledger must not be moved");
+        assert!(!named.exists(), "nothing may be created at the named path");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_failed_state_dir_move_keeps_the_legacy_ledger() {
+        let root = temp_config_dir("state-fail");
+        let legacy = root.join(LEGACY_CONFIG_DIR_NAME);
+        // A target whose parent does not exist makes `rename` fail, which is
+        // the shape of a permissions or mount error in the field.
+        let current = root.join("missing-parent").join(CONFIG_DIR_NAME);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("a.json"), "old").unwrap();
+
+        let used = migrate_state_dir(&current, Some(&current), Some(&legacy));
+
+        assert_eq!(
+            used, legacy,
+            "a failed move must keep the old ledger in use, not start an empty one"
+        );
+        assert!(legacy.join("a.json").exists(), "nothing may be lost");
         std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -312,7 +312,14 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
 /// Delete the user config file, reporting any deployed config that still holds
 /// a credential (login's mirror image).
 pub fn run_logout() -> Result<LogoutResult, CommandError> {
-    use crate::config::{legacy_user_config_dir, user_config_path};
+    use crate::config::{
+        CONFIG_FILENAME, legacy_user_config_dir, migrate_legacy_user_config, user_config_path,
+    };
+
+    // Migrate first, unconditionally: a config at the legacy path is a
+    // logged-in install, and the settings load can skip it when a deployed
+    // config next to the binary shadows the user file.
+    migrate_legacy_user_config();
 
     let path = user_config_path().ok_or_else(|| {
         CommandError::new(
@@ -322,6 +329,23 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
         )
     })?;
     if !path.exists() {
+        // The move can fail (permissions, a concurrent writer). A legacy
+        // config still holds a credential, so it is removed in place rather
+        // than left behind by a logout that reports "not logged in".
+        let legacy_path = legacy_user_config_dir().map(|dir| dir.join(CONFIG_FILENAME));
+        if let Some(legacy_path) = legacy_path.filter(|path| path.exists()) {
+            std::fs::remove_file(&legacy_path).map_err(|d| {
+                CommandError::new(
+                    REASON_IO_ERROR,
+                    format!("cannot remove {}: {d}", legacy_path.display()),
+                    "check permissions on ~/.config/rusty-user-voice".to_owned(),
+                )
+            })?;
+            return Ok(LogoutResult {
+                removed: legacy_path,
+                shadow_warning: shadow_note(&path),
+            });
+        }
         return Err(CommandError::new(
             REASON_NOT_LOGGED_IN,
             "not logged in (no config file found)".to_owned(),
@@ -338,7 +362,7 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
     // A config left at the legacy path holds a credential too. Logout removes
     // it, or the secret would survive the logout.
     if let Some(legacy) = legacy_user_config_dir() {
-        let legacy_path = legacy.join(crate::config::CONFIG_FILENAME);
+        let legacy_path = legacy.join(CONFIG_FILENAME);
         if legacy_path.exists() {
             let _ = std::fs::remove_file(&legacy_path);
         }

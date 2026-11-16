@@ -258,10 +258,13 @@ fn collect_parses_ndjson_and_cursor() {
 
 #[test]
 fn settings_debug_output_redacts_api_key() {
+    // An explicit state dir: `None` would resolve the platform default and
+    // run the legacy state-dir migration against the real home directory.
+    let state_dir = std::env::temp_dir().join(format!("uv-state-{}", std::process::id()));
     let settings = rusty_user_voice::Settings::from_values(
         "https://acme.uservoice.com",
         "fixture-super-secret",
-        None,
+        Some(state_dir),
         Some(2),
     )
     .expect("settings");

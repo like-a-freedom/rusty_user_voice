@@ -1,20 +1,50 @@
 use rusty_user_voice::Settings;
 
+/// An explicit state dir.
+///
+/// `from_values(..., None, ...)` resolves the platform default, which runs the
+/// legacy state-dir migration against the real home directory. Tests must not
+/// touch user state, so they always name their own directory.
+fn isolated_state_dir() -> Option<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    Some(std::env::temp_dir().join(format!(
+        "uv-state-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::SeqCst)
+    )))
+}
+
 #[test]
 fn settings_from_values_works() {
-    let s = Settings::from_values("https://acme.uservoice.com", "test-token", None, None)
-        .expect("settings");
+    let s = Settings::from_values(
+        "https://acme.uservoice.com",
+        "test-token",
+        isolated_state_dir(),
+        None,
+    )
+    .expect("settings");
     assert_eq!(s.max_in_flight, 2);
 }
 
 #[test]
 fn settings_from_values_clamps_max_in_flight() {
-    let s = Settings::from_values("https://acme.uservoice.com", "tok", None, Some(100))
-        .expect("settings");
+    let s = Settings::from_values(
+        "https://acme.uservoice.com",
+        "tok",
+        isolated_state_dir(),
+        Some(100),
+    )
+    .expect("settings");
     assert_eq!(s.max_in_flight, 8);
 
-    let s = Settings::from_values("https://acme.uservoice.com", "tok", None, Some(0))
-        .expect("settings");
+    let s = Settings::from_values(
+        "https://acme.uservoice.com",
+        "tok",
+        isolated_state_dir(),
+        Some(0),
+    )
+    .expect("settings");
     assert_eq!(s.max_in_flight, 1);
 }
 
@@ -23,7 +53,7 @@ fn settings_debug_output_redacts_api_key() {
     let s = Settings::from_values(
         "https://acme.uservoice.com",
         "fixture-super-secret",
-        None,
+        isolated_state_dir(),
         None,
     )
     .expect("settings");
@@ -34,8 +64,13 @@ fn settings_debug_output_redacts_api_key() {
 
 #[test]
 fn settings_default_output_and_log_level_are_none() {
-    let s =
-        Settings::from_values("https://acme.uservoice.com", "tok", None, None).expect("settings");
+    let s = Settings::from_values(
+        "https://acme.uservoice.com",
+        "tok",
+        isolated_state_dir(),
+        None,
+    )
+    .expect("settings");
     assert!(s.default_output.is_none());
     assert!(s.log_level.is_none());
     assert!(s.ca_cert.is_none());

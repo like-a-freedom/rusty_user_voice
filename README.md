@@ -90,7 +90,7 @@ It checks these config file locations in order:
 1. `config.yaml` next to the binary
 2. `~/.config/rusty_user_voice/config.yaml` (written by `uservoice-cli login`)
 
-A config written before the directory was renamed (`~/.config/rusty-user-voice/`) is moved to the new path the first time it is read, and the change ledger under the state dir is moved the same way, so an existing login survives the upgrade.
+A config written before the directory was renamed (`~/.config/rusty-user-voice/`) is moved to the new path the first time it is read, and the change ledger under the state dir is moved the same way — unless you named a `state_dir` yourself (flag, `USERVOICE_STATE_DIR`, `uservoice_state_dir`), which is never touched. An existing login survives the upgrade.
 
 On macOS and Linux:
 

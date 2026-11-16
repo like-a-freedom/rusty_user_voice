@@ -29,13 +29,18 @@ for both `~/.config/<name>/config.yaml` and the platform state dir.
 Both migrate automatically, once:
 
 - **Config** — `migrate_legacy_user_config()` runs before every read
-  (`load_yaml`, `load_user_config_raw`) and before the `login` overwrite guard.
-  The file is *moved*, not copied, so the bearer token is not left in two
-  places, and permissions are re-asserted as 0600 because the legacy copy may
-  have been created laxer. If a config already exists at the new path, the
-  current one wins and the legacy file is left alone — deleting it would destroy
-  a credential the user may still want. `logout` removes it from either
-  location, or the secret would survive the logout.
+  (`load_yaml`, `load_user_config_raw`), before the `login` overwrite guard,
+  and at the top of `logout` — deliberately at the top, because a deployed
+  `config.yaml` next to the binary short-circuits the settings load and would
+  otherwise leave the legacy credential on disk after a logout that reports
+  "not logged in". The file is *moved*, not copied, so the bearer token is not
+  left in two places, and permissions are re-asserted as 0600 because the
+  legacy copy may have been created laxer. If a config already exists at the
+  new path, the current one wins and the legacy file is left alone — deleting
+  it would destroy a credential the user may still want. When the move itself
+  fails, the legacy file is read in place rather than treated as absent.
+  `logout` removes it from either location, or the secret would survive the
+  logout.
 - **State dir** — `migrate_legacy_state_dir()` runs after the state dir is
   resolved, and only when the resolved path *is* the platform default. A
   `state_dir` named by the user (flag, env, `uservoice_state_dir`) is never
@@ -55,5 +60,14 @@ sets no user agent to align with.
   deletes it; only `logout` removes the config file itself.
 - The migration is stat-only when there is nothing to move, so the steady-state
   cost is two `exists()` calls per settings load.
+- A failed move is not visible: tracing starts after the settings load, so the
+  `warn!` has no subscriber yet. Both migrations therefore degrade instead of
+  failing — the config is read in place at the legacy path, and the state dir
+  keeps being used at the legacy path — until a later run completes the move.
+- Mixed-version window: an old-version MCP server writing its ledger after the
+  new version has migrated recreates the legacy directory. Data written in that
+  window stays in the legacy directory, which no longer migrates once the new
+  one exists. Upgrading the running process closes it.
 - Tests cover the move, the current-config-wins case, the no-op case, and the
-  0600 re-assertion, for both the config file and the state directory.
+  0600 re-assertion, for both the config file and the state directory, plus
+  end-to-end runs through the real binary (`tests/migration_cli.rs`).
