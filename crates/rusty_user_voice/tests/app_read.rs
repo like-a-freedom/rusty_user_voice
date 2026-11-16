@@ -462,6 +462,39 @@ async fn a_throttled_catalog_offers_a_retry_without_losing_the_forward_action() 
 }
 
 #[tokio::test]
+async fn an_unavailable_catalog_is_not_retried() {
+    let app = App::new(
+        Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(
+            "custom_fields",
+            PartialReason::Unavailable,
+        )),
+        2,
+    );
+    let result = app
+        .workspace_context(rusty_user_voice::WorkspaceContextParams {
+            include_catalog: true,
+        })
+        .await
+        .expect("workspace");
+    assert_eq!(result.status, OutcomeStatus::Partial);
+    assert_eq!(
+        result.next_actions.len(),
+        1,
+        "an unavailable endpoint is not worth a retry: {:?}",
+        result.next_actions
+    );
+    assert_eq!(result.next_actions[0].tool, "uservoice_search_ideas");
+    assert!(
+        result
+            .guidance
+            .as_deref()
+            .is_some_and(|guidance| guidance.contains("not available")),
+        "the guidance must say the section is unavailable: {:?}",
+        result.guidance
+    );
+}
+
+#[tokio::test]
 async fn a_forbidden_catalog_does_not_offer_a_retry() {
     let app = App::new(
         Arc::new(support::FakeUserVoiceApi::with_missing_catalog_sections(

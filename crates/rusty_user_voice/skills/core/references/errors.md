@@ -33,7 +33,7 @@ Every response, successful or not, carries a status.
 | Status | Meaning | Recovery |
 |---|---|---|
 | `ok` | Every requested section is present | Continue |
-| `partial` | Some sections failed | Use what arrived. Retry the missing sections |
+| `partial` | Some sections failed | Use what arrived. Retry only when `partial_reason` is `throttled` or `failed` |
 | `no_results` | The read matched nothing | Widen the filter. Do not retry unchanged |
 | `conflict` | Prior state disagrees with the request | Re-read, then preview again |
 

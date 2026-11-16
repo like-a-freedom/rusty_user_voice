@@ -69,7 +69,7 @@ in `status` and in the error payload.
 `missing_sections` names every section that failed to load, in the Idea
 context and in the workspace catalog. It is empty on a complete result. The
 catalog's `partial_reason` says whether retrying can help: `throttled` and
-`failed` are worth a retry, `forbidden` is not.
+`failed` are worth a retry, `forbidden` and `unavailable` are not.
 
 ## applied_operations
 

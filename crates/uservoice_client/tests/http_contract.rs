@@ -278,7 +278,8 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
             r#"{"custom_fields":[
                 {"key":"cf_tfs_link","name":"TFS link","field_type":"string","value_type":"url","object_type":"suggestions"},
                 {"key":"cf_reviewed","name":"Reviewed","field_type":"boolean","object_type":"suggestions"},
-                {"key":"cf_product_manager_name","name":"Product Manager","field_type":"select","value_type":"admin","object_type":"suggestions"},
+                {"key":"cf_product_manager_name","name":"Product Manager","field_type":"select","value_type":"admin","object_type":"suggestions",
+                 "string_enum_values":null,"numeric_enum_values":null},
                 {"key":"cf_project","name":"Project","field_type":"select","value_type":"string_enum","object_type":"suggestions",
                  "string_enum_values":[{"id":7,"label":"Alpha","is_default":true}]},
                 {"key":"cf_goal","name":"Goal","field_type":"select","value_type":"numeric_enum","object_type":"suggestions",
@@ -311,6 +312,43 @@ async fn workspace_catalog_lists_the_idea_custom_fields() {
     assert_eq!(project.string_enum_values[0].is_default, Some(true));
     let goal = &catalog.custom_fields[4];
     assert_eq!(goal.numeric_enum_values[0].numeric_value, Some(1.5));
+    assert!(
+        catalog.custom_fields[2].string_enum_values.is_empty(),
+        "the API sends null for an admin select's option list"
+    );
+}
+
+/// A 404 (or a response this client cannot decode) is not a reason to retry:
+/// the catalog says so instead of inviting another identical call.
+#[tokio::test]
+async fn a_missing_custom_fields_endpoint_is_unavailable_and_not_retryable() {
+    let server = MockServer::start().await;
+    let fixture = include_str!("fixtures/workspace.json");
+    for endpoint in &["forums", "categories", "statuses", "labels"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v2/admin/{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v2/admin/custom_fields"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let catalog = fixture_client(&server)
+        .workspace_catalog()
+        .await
+        .expect("catalog")
+        .data;
+    assert_eq!(catalog.forums[0].id.get(), 11);
+    assert_eq!(
+        catalog.partial_reason,
+        Some(PartialReason::Unavailable),
+        "a missing endpoint is not a transient failure"
+    );
 }
 
 /// The custom-fields endpoint is an extra: a key that cannot read it must

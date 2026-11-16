@@ -145,7 +145,10 @@ pub enum PartialReason {
     Throttled,
     /// The API key cannot read the section. Retrying will not help.
     Forbidden,
-    /// Another failure. Retrying later is reasonable.
+    /// The endpoint or its response is not something this client can use.
+    /// Retrying will not help until the client or the tenant changes.
+    Unavailable,
+    /// A transient failure. Retrying later is reasonable.
     Failed,
 }
 
@@ -166,7 +169,8 @@ pub struct EnumOption {
 /// `key` is what an update body must carry (`cf_tfs_link`). The value shape
 /// follows `field_type` and `value_type`:
 ///
-/// - `string`, `text`, and `url` take a JSON string.
+/// - `string` and `text` field types take a JSON string; a `url` value type
+///   is still a string.
 /// - `number` takes a JSON number, `boolean` a JSON boolean.
 /// - `timestamp` takes a quoted date or RFC 3339 string; a unix number is
 ///   rejected by the API.
@@ -182,11 +186,22 @@ pub struct CustomField {
     /// catalog.
     #[serde(default)]
     pub field_type: Option<String>,
+    #[serde(default)]
     pub value_type: Option<String>,
     pub object_type: Option<String>,
-    #[serde(default)]
+    /// The accepted options of a `select` field. The API sends `null` for an
+    /// admin select, which has no fixed option list.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub string_enum_values: Vec<EnumOption>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub numeric_enum_values: Vec<EnumOption>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -243,6 +258,7 @@ pub(crate) struct LabelsResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CustomFieldsResponse {
+    #[serde(default, deserialize_with = "deserialize_null_vec")]
     pub custom_fields: Vec<CustomField>,
     #[serde(default)]
     pub pagination: UpstreamPagination,

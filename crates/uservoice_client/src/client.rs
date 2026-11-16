@@ -443,6 +443,10 @@ impl UserVoiceApi for ReqwestUserVoiceClient {
                     ClientError::HttpStatus { status } if *status == 401 || *status == 403 => {
                         PartialReason::Forbidden
                     }
+                    ClientError::NotFound
+                    | ClientError::Validation { .. }
+                    | ClientError::Decode(_)
+                    | ClientError::PaginationLimit { .. } => PartialReason::Unavailable,
                     _ => PartialReason::Failed,
                 };
                 tracing::warn!("cannot read the Idea custom fields: {error}");

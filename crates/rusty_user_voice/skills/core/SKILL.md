@@ -114,7 +114,7 @@ Every response carries a status.
 | Status | Meaning | What to do |
 |---|---|---|
 | `ok` | Every requested section is present | Continue |
-| `partial` | Some sections failed | Use what arrived, retry the missing ones |
+| `partial` | Some sections failed | Use what arrived. Retry only if `partial_reason` says so |
 | `no_results` | The read matched nothing | Widen the filter, do not retry unchanged |
 | `conflict` | Prior state disagrees with the request | Re-read, then preview again |
 

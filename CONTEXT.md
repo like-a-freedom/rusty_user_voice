@@ -40,10 +40,9 @@ _Avoid_: state, stage
 A `cf_*` value on an Idea (`cf_tfs_link`, `cf_reviewed`, a planned release
 date, ...). The API carries the values as top-level keys of the update body and
 silently ignores any key it does not recognise, so `ideas update` rejects a key
-that is not `cf_`-shaped instead of writing nothing. A value is a JSON string,
-number, or boolean; a timestamp is a quoted date string (a unix number is
-rejected), an admin select takes the admin id, and a select field's options come
-with the catalog. Preview shows each field's before and after; the value is part
+that is not `cf_`-shaped instead of writing nothing. A value is a JSON string, number, boolean, or array; a timestamp is a quoted
+date string (a unix number is rejected), an admin select takes the admin id, and
+a select field's options come with the catalog. Preview shows each field's before and after; the value is part
 of the apply fingerprint. `uservoice_workspace_context` lists the available
 keys and types. A key the tenant does not define is still ignored by the API, so
 the catalog is the source of valid keys; a catalog section that cannot be read

@@ -29,7 +29,7 @@ Call it first. Every ID used later comes from the catalog. `custom_fields`
 names the keys an update can set, so pick one there: the API ignores an
 undefined key. If a section cannot be read, `missing_sections` names it, the
 status is `partial`, and `partial_reason` says whether a retry helps
-(`throttled`, `failed`) or not (`forbidden`).
+(`throttled`, `failed`) or not (`forbidden`, `unavailable`).
 
 ## uservoice_search_ideas
 

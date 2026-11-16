@@ -96,6 +96,11 @@ impl<G: UserVoiceApi> App<G> {
                      you need the field list.",
                     false,
                 ),
+                Some(uservoice_client::PartialReason::Unavailable) => (
+                    "The custom fields are not available from this API. The rest of the taxonomy \
+                     is usable; continue with search_ideas instead of retrying.",
+                    false,
+                ),
                 _ => (
                     "The custom fields could not be read. The rest of the taxonomy is usable; \
                      retry uservoice_workspace_context later.",

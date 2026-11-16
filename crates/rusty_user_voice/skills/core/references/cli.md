@@ -113,7 +113,7 @@ missing value fails with `missing_value` instead of blocking.
 | `--remove-label-ids` | Comma-separated Label IDs to detach |
 | `--internal-note` | Note for admins, invisible to supporters |
 | `--custom-field` | Set a custom field from a string: `cf_tfs_link=https://...`. Repeatable |
-| `--custom-field-json` | Set a custom field from a JSON literal: `cf_reviewed=true`, `cf_points=5`, `null` clears. A timestamp is a quoted date or RFC 3339 string (a unix number is rejected); a multi-select is an array. Repeatable |
+| `--custom-field-json` | Set a custom field from a JSON literal: `cf_reviewed=true`, `cf_points=5`, `null` clears. A timestamp is a quoted date or RFC 3339 string (a unix number is rejected); an admin select takes the admin id; a multi-select is an array. Repeatable |
 | `--change-id` | Change ID from the preview. Required for apply |
 | `--confirmation` | The literal string `apply`. Required for apply |
 | `--idempotency-key` | Caller-chosen key. Required for apply |

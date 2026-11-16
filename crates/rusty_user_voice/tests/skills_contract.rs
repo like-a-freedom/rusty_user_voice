@@ -471,7 +471,7 @@ fn the_corpus_respects_its_context_budget() {
     const BUDGETS: &[(&str, usize)] = &[
         ("core/SKILL.md", 1800),
         ("core/references/cli.md", 1200),
-        ("core/references/mcp-tools.md", 900),
+        ("core/references/mcp-tools.md", 950),
         ("core/references/pagination.md", 700),
         ("core/references/errors.md", 700),
         ("core/references/envelope.md", 700),
