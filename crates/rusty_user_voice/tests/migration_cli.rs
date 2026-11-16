@@ -352,6 +352,66 @@ fn login_reports_a_legacy_config_the_current_config_left_behind() {
         legacy_config(&home).exists(),
         "the current config wins, so the legacy credential is preserved, not destroyed"
     );
+
+    // The human output must carry the same note — the JSON payload is not the
+    // only way a person learns about the second copy.
+    let mut cmd = migrate_cmd(&home);
+    cmd.args([
+        "login",
+        "--base-url",
+        "https://x.uservoice.com",
+        "--api-key-stdin",
+        "--force",
+        "--no-verify",
+    ]);
+    cmd.write_stdin("new-key");
+    cmd.assert().success().stdout(predicate::str::contains(
+        "still exists and holds a credential",
+    ));
+    std::fs::remove_dir_all(&home).ok();
+}
+
+/// The common upgrade path: a legacy-only home. Login moves the file and
+/// reports null, and the logout that follows removes the migrated file and
+/// reports null too — a false positive on either would tell the user to chase
+/// a file that is not there.
+#[test]
+fn login_and_logout_after_a_completed_migration_report_no_leftover() {
+    let home = unique_home("migrated-json");
+    seed_legacy_config(&home);
+
+    let mut cmd = migrate_cmd(&home);
+    cmd.args([
+        "--output",
+        "json",
+        "login",
+        "--base-url",
+        "https://x.uservoice.com",
+        "--api-key-stdin",
+        "--force",
+        "--no-verify",
+    ]);
+    cmd.write_stdin("new-key");
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(
+        v["legacy_warning"].is_null(),
+        "the migration moved the file, so nothing is left: {}",
+        v["legacy_warning"]
+    );
+    assert!(!legacy_config(&home).exists());
+    assert!(current_config(&home).exists());
+
+    let mut cmd = migrate_cmd(&home);
+    cmd.args(["--output", "json", "logout"]);
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(
+        v["legacy_warning"].is_null(),
+        "a logout of a migrated home leaves nothing behind: {}",
+        v["legacy_warning"]
+    );
+    assert!(!current_config(&home).exists());
     std::fs::remove_dir_all(&home).ok();
 }
 
