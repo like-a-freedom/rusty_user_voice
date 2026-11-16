@@ -79,7 +79,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Log in: save API key + base URL to ~/.config/rusty-user-voice/config.yaml.
+    /// Log in: save API key + base URL to ~/.config/rusty_user_voice/config.yaml.
     ///
     /// Prompts for a missing base URL / API key (TTY only, key input hidden).
     /// Headless and agents: pass --base-url with --api-key-stdin (pipe) or the
@@ -121,7 +121,7 @@ pub enum Command {
         no_verify: bool,
     },
 
-    #[doc = "Log out: delete ~/.config/rusty-user-voice/config.yaml."]
+    #[doc = "Log out: delete ~/.config/rusty_user_voice/config.yaml."]
     Logout {},
 
     /// Workspace context: the principal, the taxonomy, and the rate-limit envelope.

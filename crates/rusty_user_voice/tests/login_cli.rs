@@ -17,7 +17,7 @@ fn unique_home(tag: &str) -> PathBuf {
 }
 
 fn user_config(home: &Path) -> PathBuf {
-    home.join(".config/rusty-user-voice/config.yaml")
+    home.join(".config/rusty_user_voice/config.yaml")
 }
 
 fn write_config(home: &Path, body: &str) {

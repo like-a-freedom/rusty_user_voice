@@ -159,8 +159,15 @@ pub const NEXT_COMMAND: &str = "uservoice-cli workspace --include-catalog";
 /// network preflight → secure save.
 pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError> {
     use crate::bootstrap::build_http_client;
-    use crate::config::{YamlConfig, load_user_config_raw, save_user_config, user_config_path};
+    use crate::config::{
+        YamlConfig, load_user_config_raw, migrate_legacy_user_config, save_user_config,
+        user_config_path,
+    };
     use uservoice_client::{AccessToken, ApiEndpoint, ReqwestUserVoiceClient, UserVoiceApi};
+
+    // 0. Migrate a config left at the legacy path, so the guard below sees
+    //    it and the user is not asked to log in again.
+    migrate_legacy_user_config();
 
     // 1. Guard FIRST — before reading any secret from stdin, so a refused
     //    overwrite never consumes credentials or prompts.
@@ -289,7 +296,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
         CommandError::new(
             REASON_IO_ERROR,
             d,
-            "check permissions on ~/.config/rusty-user-voice".to_owned(),
+            "check permissions on ~/.config/rusty_user_voice".to_owned(),
         )
     })?;
     let shadow_warning = shadow_note(&config_path);
@@ -305,7 +312,7 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
 /// Delete the user config file, reporting any deployed config that still holds
 /// a credential (login's mirror image).
 pub fn run_logout() -> Result<LogoutResult, CommandError> {
-    use crate::config::user_config_path;
+    use crate::config::{legacy_user_config_dir, user_config_path};
 
     let path = user_config_path().ok_or_else(|| {
         CommandError::new(
@@ -325,9 +332,17 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
         CommandError::new(
             REASON_IO_ERROR,
             format!("cannot remove {}: {d}", path.display()),
-            "check permissions on ~/.config/rusty-user-voice".to_owned(),
+            "check permissions on ~/.config/rusty_user_voice".to_owned(),
         )
     })?;
+    // A config left at the legacy path holds a credential too. Logout removes
+    // it, or the secret would survive the logout.
+    if let Some(legacy) = legacy_user_config_dir() {
+        let legacy_path = legacy.join(crate::config::CONFIG_FILENAME);
+        if legacy_path.exists() {
+            let _ = std::fs::remove_file(&legacy_path);
+        }
+    }
     let shadow_warning = shadow_note(&path);
     Ok(LogoutResult {
         removed: path,

@@ -24,7 +24,7 @@ uservoice-cli --output json --base-url https://acme.uservoice.com ideas get 101
 
 | Command | MCP tool | Notes |
 |---|---|---|
-| `login` | none | Writes `~/.config/rusty-user-voice/config.yaml`, mode 0600 |
+| `login` | none | Writes `~/.config/rusty_user_voice/config.yaml`, mode 0600 |
 | `logout` | none | Deletes that file |
 | `workspace` | `uservoice_workspace_context` | Principal plus taxonomy |
 | `ideas search` | `uservoice_search_ideas` | One page, or a stream with `--all` |

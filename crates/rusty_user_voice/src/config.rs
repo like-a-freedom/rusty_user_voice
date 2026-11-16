@@ -4,7 +4,16 @@ use uservoice_client::{AccessToken, ApiEndpoint};
 
 use crate::error::AppError;
 
-const CONFIG_FILENAME: &str = "config.yaml";
+pub(crate) const CONFIG_FILENAME: &str = "config.yaml";
+
+/// The directory name of the user-level config and the default state
+/// directory. It matches the crate name, the way `rusty_azure_devops` names
+/// its own directories.
+const CONFIG_DIR_NAME: &str = "rusty_user_voice";
+
+/// The config directory name used before the rename to [`CONFIG_DIR_NAME`].
+/// A config file left there is migrated on first use.
+const LEGACY_CONFIG_DIR_NAME: &str = "rusty-user-voice";
 
 // Serialize + crate-visible fields + omit absent optionals: a `null` key
 // would be noise, and missing Option<T> keys already load back as None.
@@ -70,14 +79,14 @@ impl Settings {
         let state_dir = state_dir_override
             .or_else(|| env::var_os("USERVOICE_STATE_DIR").map(PathBuf::from))
             .or_else(|| yaml.uservoice_state_dir.map(PathBuf::from))
-            .or_else(|| dirs::state_dir().map(|path| path.join("rusty-user-voice")))
-            .or_else(|| dirs::data_local_dir().map(|path| path.join("rusty-user-voice")))
+            .or_else(platform_state_dir)
             .ok_or_else(|| {
                 AppError::Validation(
                     "USERVOICE_STATE_DIR is required when no platform state directory exists"
                         .to_owned(),
                 )
             })?;
+        migrate_legacy_state_dir(&state_dir);
 
         // max_in_flight: CLI flag > env var > config.yaml > default(2)
         let max_in_flight = max_in_flight_override
@@ -122,15 +131,13 @@ impl Settings {
         state_dir: Option<PathBuf>,
         max_in_flight: Option<u32>,
     ) -> Result<Self, AppError> {
-        let state_dir = state_dir
-            .or_else(|| dirs::state_dir().map(|path| path.join("rusty-user-voice")))
-            .or_else(|| dirs::data_local_dir().map(|path| path.join("rusty-user-voice")))
-            .ok_or_else(|| {
-                AppError::Validation(
-                    "USERVOICE_STATE_DIR is required when no platform state directory exists"
-                        .to_owned(),
-                )
-            })?;
+        let state_dir = state_dir.or_else(platform_state_dir).ok_or_else(|| {
+            AppError::Validation(
+                "USERVOICE_STATE_DIR is required when no platform state directory exists"
+                    .to_owned(),
+            )
+        })?;
+        migrate_legacy_state_dir(&state_dir);
         Ok(Self {
             endpoint: ApiEndpoint::parse(base_url)?,
             token: AccessToken::parse(api_key.to_owned())?,
@@ -149,6 +156,9 @@ impl Settings {
         {
             return Some(yaml);
         }
+        // A config left at the legacy path moves into the current one before
+        // it is read, so the user keeps their login across the rename.
+        migrate_legacy_user_config();
         Self::config_path_home().and_then(|path| {
             let content = std::fs::read_to_string(&path).ok()?;
             serde_yaml::from_str(&content).ok()
@@ -162,22 +172,151 @@ impl Settings {
     }
 
     fn config_path_home() -> Option<PathBuf> {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok()?;
         Some(
-            PathBuf::from(home)
+            home_dir()?
                 .join(".config")
-                .join("rusty-user-voice")
+                .join(CONFIG_DIR_NAME)
                 .join(CONFIG_FILENAME),
         )
     }
 }
 
-/// User-level config path: ~/.config/rusty-user-voice/config.yaml
+/// User-level config path: ~/.config/rusty_user_voice/config.yaml
 /// (login always writes here — never next to the binary).
 pub(crate) fn user_config_path() -> Option<std::path::PathBuf> {
     Settings::config_path_home()
+}
+
+/// The user-level config directory: ~/.config/rusty_user_voice
+///
+/// The directory is named after the crate, with underscores, the same way
+/// `rusty_azure_devops` names its own. The earlier `rusty-user-voice`
+/// spelling is read as a legacy path and migrated on first use.
+pub(crate) fn user_config_dir() -> Option<std::path::PathBuf> {
+    Some(home_dir()?.join(".config").join(CONFIG_DIR_NAME))
+}
+
+/// The legacy user-level config directory: ~/.config/rusty-user-voice
+///
+/// Kept for the migration only. A config file that predates the rename is
+/// moved to [`user_config_dir`] the first time the tool reads it.
+pub(crate) fn legacy_user_config_dir() -> Option<std::path::PathBuf> {
+    Some(home_dir()?.join(".config").join(LEGACY_CONFIG_DIR_NAME))
+}
+
+/// The platform default state directory: `<state>/rusty_user_voice`
+/// (falling back to the local data dir where there is no state dir).
+fn platform_state_dir() -> Option<PathBuf> {
+    dirs::state_dir()
+        .map(|path| path.join(CONFIG_DIR_NAME))
+        .or_else(|| dirs::data_local_dir().map(|path| path.join(CONFIG_DIR_NAME)))
+}
+
+/// The state directory used before the rename: `<state>/rusty-user-voice`.
+fn legacy_platform_state_dir() -> Option<PathBuf> {
+    dirs::state_dir()
+        .map(|path| path.join(LEGACY_CONFIG_DIR_NAME))
+        .or_else(|| dirs::data_local_dir().map(|path| path.join(LEGACY_CONFIG_DIR_NAME)))
+}
+
+/// Move the legacy state directory into `current`, once.
+///
+/// Only the platform default is migrated: a `state_dir` the user chose
+/// themselves (flag, env, config) is theirs to move, and renaming it would
+/// take their ledger away from the path they named.
+fn migrate_legacy_state_dir(current: &std::path::Path) {
+    if Some(current) != platform_state_dir().as_deref() {
+        return;
+    }
+    let Some(legacy) = legacy_platform_state_dir() else {
+        return;
+    };
+    migrate_state_dir_at(&legacy, current);
+}
+
+/// Move `legacy` to `current` when only `legacy` exists.
+///
+/// The ledger is local history, not a credential: it is moved rather than
+/// left behind so previews recorded before the rename are not silently
+/// dropped. Nothing is deleted — a failure leaves both directories intact.
+fn migrate_state_dir_at(legacy: &std::path::Path, current: &std::path::Path) {
+    if legacy == current || !legacy.exists() || current.exists() {
+        return;
+    }
+    if let Err(error) = std::fs::rename(legacy, current) {
+        tracing::warn!(
+            "cannot migrate state dir {} to {}: {error}",
+            legacy.display(),
+            current.display()
+        );
+    }
+}
+
+/// The home directory, on Unix or Windows.
+fn home_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME")
+        .ok()
+        .or_else(|| std::env::var("USERPROFILE").ok())?;
+    if home.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(home))
+    }
+}
+
+/// Move a legacy user config into the current directory.
+///
+/// Returns the path the config was moved to, or `None` when there was
+/// nothing to migrate.
+pub(crate) fn migrate_legacy_user_config() -> Option<std::path::PathBuf> {
+    migrate_at(&legacy_user_config_dir()?, &user_config_dir()?)
+}
+
+/// Move the config of `legacy_dir` into `current_dir`.
+///
+/// The file is moved, not copied, so the secret does not stay behind in two
+/// places. The permissions are re-asserted as 0600, because the file carries a
+/// bearer token and the legacy copy may have been created with a laxer mode.
+///
+/// Returns the path the config was moved to, or `None` when there was
+/// nothing to migrate.
+fn migrate_at(legacy_dir: &std::path::Path, current_dir: &std::path::Path) -> Option<PathBuf> {
+    let legacy_path = legacy_dir.join(CONFIG_FILENAME);
+    if !legacy_path.exists() {
+        return None;
+    }
+
+    let current_path = current_dir.join(CONFIG_FILENAME);
+    if current_path.exists() {
+        // The current config wins. The legacy file stays where it is: removing
+        // it would delete a credential the user may still want.
+        return None;
+    }
+
+    // `rename` needs the target directory itself to exist, not just its parent.
+    if let Err(error) = std::fs::create_dir_all(current_dir) {
+        tracing::warn!("cannot create {}: {error}", current_dir.display());
+        return None;
+    }
+    if let Err(error) = std::fs::rename(&legacy_path, &current_path) {
+        tracing::warn!("cannot migrate {}: {error}", legacy_path.display());
+        return None;
+    }
+    tighten_permissions(&current_path);
+    Some(current_path)
+}
+
+/// Re-assert owner-only permissions on a file that carries a secret.
+fn tighten_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::warn!("cannot chmod 0600 {}: {error}", path.display());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Binary-dir config path (next to the executable). Exposed read-only so
@@ -197,6 +336,9 @@ pub(crate) fn config_default_output() -> Option<String> {
 /// Raw user-file read for the `--force` merge (decision 13). `None` when the
 /// file is absent or unparseable — login then writes a fresh config.
 pub(crate) fn load_user_config_raw() -> Option<YamlConfig> {
+    // Migrate first: `login --force` merges the keys it does not own out of
+    // the existing config, and that config may still sit at the legacy path.
+    migrate_legacy_user_config();
     let path = Settings::config_path_home()?;
     let content = std::fs::read_to_string(&path).ok()?;
     serde_yaml::from_str(&content).ok()
@@ -274,6 +416,16 @@ mod tests {
         dir
     }
 
+    /// The legacy config directory inside a fake home.
+    fn legacy_dir(home: &std::path::Path) -> std::path::PathBuf {
+        home.join(".config").join(LEGACY_CONFIG_DIR_NAME)
+    }
+
+    /// The current config directory inside a fake home.
+    fn current_dir(home: &std::path::Path) -> std::path::PathBuf {
+        home.join(".config").join(CONFIG_DIR_NAME)
+    }
+
     fn sample(key: &str) -> YamlConfig {
         YamlConfig {
             uservoice_api_key: Some(key.to_owned()),
@@ -331,5 +483,129 @@ mod tests {
             assert_eq!(mode, 0o600, "pre-existing 0644 file must be tightened");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_migration_moves_a_legacy_config_into_the_current_directory() {
+        let home = temp_config_dir("migrate");
+        let legacy = legacy_dir(&home);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(
+            legacy.join(CONFIG_FILENAME),
+            "uservoice_api_key: legacy-key\n",
+        )
+        .unwrap();
+
+        // The migration runs against the real home directory, so the test
+        // drives the same helper the loader uses.
+        let moved = migrate_at(&legacy, &current_dir(&home));
+        assert_eq!(moved, Some(current_dir(&home).join(CONFIG_FILENAME)));
+        assert!(
+            !legacy.join(CONFIG_FILENAME).exists(),
+            "the legacy file must be moved, not copied"
+        );
+        let content = std::fs::read_to_string(current_dir(&home).join(CONFIG_FILENAME)).unwrap();
+        assert!(content.contains("legacy-key"));
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn the_migration_keeps_the_current_config_when_there_is_one() {
+        let home = temp_config_dir("migrate-keep");
+        let legacy = legacy_dir(&home);
+        let current = current_dir(&home);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::write(legacy.join(CONFIG_FILENAME), "uservoice_api_key: legacy\n").unwrap();
+        std::fs::write(
+            current.join(CONFIG_FILENAME),
+            "uservoice_api_key: current\n",
+        )
+        .unwrap();
+
+        assert_eq!(migrate_at(&legacy, &current), None);
+        let content = std::fs::read_to_string(current.join(CONFIG_FILENAME)).unwrap();
+        assert!(content.contains("current"), "the current config must win");
+        assert!(
+            legacy.join(CONFIG_FILENAME).exists(),
+            "the legacy file must be left alone, not deleted"
+        );
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn the_migration_does_nothing_without_a_legacy_config() {
+        let home = temp_config_dir("migrate-none");
+        let legacy = legacy_dir(&home);
+        std::fs::create_dir_all(&legacy).unwrap();
+
+        assert_eq!(migrate_at(&legacy, &current_dir(&home)), None);
+        assert!(!current_dir(&home).join(CONFIG_FILENAME).exists());
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_migration_tightens_the_permissions_of_the_moved_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = temp_config_dir("migrate-perms");
+        let legacy = legacy_dir(&home);
+        std::fs::create_dir_all(&legacy).unwrap();
+        let legacy_file = legacy.join(CONFIG_FILENAME);
+        std::fs::write(&legacy_file, "uservoice_api_key: legacy\n").unwrap();
+        std::fs::set_permissions(&legacy_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        migrate_at(&legacy, &current_dir(&home));
+        let moved = current_dir(&home).join(CONFIG_FILENAME);
+        let mode = std::fs::metadata(&moved).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the moved API-key file must be owner-only");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn the_state_dir_migration_moves_the_legacy_ledger_into_place() {
+        let root = temp_config_dir("state-migrate");
+        let legacy = root.join(LEGACY_CONFIG_DIR_NAME);
+        let current = root.join(CONFIG_DIR_NAME);
+        std::fs::create_dir_all(legacy.join("ledger")).unwrap();
+        std::fs::write(legacy.join("ledger").join("a.json"), "{}").unwrap();
+
+        migrate_state_dir_at(&legacy, &current);
+
+        assert!(!legacy.exists(), "the legacy state dir must be moved");
+        let content = std::fs::read_to_string(current.join("ledger").join("a.json")).unwrap();
+        assert_eq!(content, "{}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_state_dir_migration_keeps_an_existing_state_dir() {
+        let root = temp_config_dir("state-keep");
+        let legacy = root.join(LEGACY_CONFIG_DIR_NAME);
+        let current = root.join(CONFIG_DIR_NAME);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::write(legacy.join("a.json"), "old").unwrap();
+        std::fs::write(current.join("a.json"), "new").unwrap();
+
+        migrate_state_dir_at(&legacy, &current);
+
+        assert!(legacy.exists(), "the current state dir wins");
+        let content = std::fs::read_to_string(current.join("a.json")).unwrap();
+        assert_eq!(content, "new");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_state_dir_migration_does_nothing_without_a_legacy_dir() {
+        let root = temp_config_dir("state-none");
+        let legacy = root.join(LEGACY_CONFIG_DIR_NAME);
+        let current = root.join(CONFIG_DIR_NAME);
+        std::fs::create_dir_all(&current).unwrap();
+
+        migrate_state_dir_at(&legacy, &current);
+
+        assert!(!legacy.exists());
+        std::fs::remove_dir_all(&root).ok();
     }
 }

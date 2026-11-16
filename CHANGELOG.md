@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The user config and state directories are now named after the crate: `~/.config/rusty_user_voice/` and `rusty_user_voice` under the platform state dir, matching `rusty_azure_devops`. Both are migrated automatically on first use: a config left at the old `~/.config/rusty-user-voice/` path is moved with permissions re-asserted as 0600, and a state directory (the change ledger) is moved when only the old one exists. A `state_dir` you named yourself (flag, env, `uservoice_state_dir`) is never touched. `logout` removes the config from either location.
 - `skills/uservoice-pm/SKILL.md` is now a stub pointing at `uservoice-cli skills get core`. Its `references/` files moved into the binary, and `skills/uservoice-pm/references/` is gone.
 - The CLI help lists every command with a description. `workspace`, `ideas`, and `feedback` had blank descriptions before.
 - `--output ndjson` is now rejected for `skills`, with a message naming the supported modes. It was silently printing prose.

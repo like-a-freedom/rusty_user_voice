@@ -127,8 +127,9 @@ For feedback imported from non-portal sources: the channel plus the source URL a
 _Avoid_: metadata, context
 
 **UserConfig**:
-The user-level `~/.config/rusty-user-voice/config.yaml` written by `login` (mode 0600,
-`logout` deletes it). A `config.yaml` next to the binary takes precedence on load and can
+The user-level `~/.config/rusty_user_voice/config.yaml` written by `login` (mode 0600,
+`logout` deletes it). A config found at the pre-rename `~/.config/rusty-user-voice/` path
+is moved here on first read. A `config.yaml` next to the binary takes precedence on load and can
 shadow it — both commands report that via `shadow_warning`. `--force` rewrites only the
 three login-owned keys and preserves the rest.
 _Avoid_: global config, settings.json

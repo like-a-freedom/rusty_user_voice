@@ -43,7 +43,7 @@ fn settings_default_output_and_log_level_are_none() {
 
 fn setup_home_config(yaml: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
-    let config_dir = dir.path().join(".config").join("rusty-user-voice");
+    let config_dir = dir.path().join(".config").join("rusty_user_voice");
     std::fs::create_dir_all(&config_dir).expect("create config dir");
     std::fs::write(config_dir.join("config.yaml"), yaml).expect("write config");
     dir

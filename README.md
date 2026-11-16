@@ -88,13 +88,15 @@ The application resolves settings in this order: **CLI flags, environment variab
 
 It checks these config file locations in order:
 1. `config.yaml` next to the binary
-2. `~/.config/rusty-user-voice/config.yaml` (written by `uservoice-cli login`)
+2. `~/.config/rusty_user_voice/config.yaml` (written by `uservoice-cli login`)
+
+A config written before the directory was renamed (`~/.config/rusty-user-voice/`) is moved to the new path the first time it is read, and the change ledger under the state dir is moved the same way, so an existing login survives the upgrade.
 
 On macOS and Linux:
 
 ```bash
-mkdir -p "$HOME/.config/rusty-user-voice"
-cp config.example.yaml "$HOME/.config/rusty-user-voice/config.yaml"
+mkdir -p "$HOME/.config/rusty_user_voice"
+cp config.example.yaml "$HOME/.config/rusty_user_voice/config.yaml"
 # edit with your values
 ```
 
@@ -103,7 +105,7 @@ cp config.example.yaml "$HOME/.config/rusty-user-voice/config.yaml"
 ```sh
 uservoice-cli login
 # prompts for base URL + API key (hidden input), validates via users/current,
-# saves to ~/.config/rusty-user-voice/config.yaml (mode 0600).
+# saves to ~/.config/rusty_user_voice/config.yaml (mode 0600).
 uservoice-cli workspace --include-catalog
 ```
 
@@ -132,7 +134,7 @@ uservoice-cli --output json workspace --include-catalog
 | CA certificate | not available | not available | `ca_cert` | path | *(none)* | PEM/DER file for on-prem TLS |
 | Log level | not available | `USERVOICE_LOG_LEVEL` | `log_level` | enum | `warn` | `error \| warn \| info \| debug \| trace` (`RUST_LOG` overrides) |
 
-¹ Platform defaults: `$XDG_STATE_HOME/rusty-user-voice` on Linux, `~/Library/Application Support/rusty-user-voice` on macOS, and `%LOCALAPPDATA%\rusty-user-voice` on Windows.
+¹ Platform defaults: `$XDG_STATE_HOME/rusty_user_voice` on Linux, `~/Library/Application Support/rusty_user_voice` on macOS, and `%LOCALAPPDATA%\rusty_user_voice` on Windows.
 
 ### Example `config.yaml`
 
@@ -143,7 +145,7 @@ uservoice_api_key: ""
 uservoice_base_url: "https://acme.uservoice.com"
 
 # Optional
-uservoice_state_dir: "/home/pm/.local/state/rusty-user-voice"
+uservoice_state_dir: "/home/pm/.local/state/rusty_user_voice"
 uservoice_max_in_flight: 4
 default_output: "json"
 ca_cert: "/etc/ssl/certs/corp-root-ca.pem"
@@ -275,7 +277,7 @@ The `uservoice-mcp` binary uses stdio transport only.
       "command": "/usr/local/bin/uservoice-mcp",
       "env": {
         "USERVOICE_BASE_URL": "https://acme.uservoice.com",
-        "USERVOICE_STATE_DIR": "/Users/pm/.local/state/rusty-user-voice"
+        "USERVOICE_STATE_DIR": "/Users/pm/.local/state/rusty_user_voice"
       }
     }
   }

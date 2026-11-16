@@ -22,7 +22,7 @@ uservoice-cli login
 ```
 
 `login` prompts for the base URL and the key on a terminal, hides the key
-input, and writes `~/.config/rusty-user-voice/config.yaml` with mode 0600. It
+input, and writes `~/.config/rusty_user_voice/config.yaml` with mode 0600. It
 verifies the credentials against the tenant before saving them. Headless
 callers pass the key on stdin instead:
 
