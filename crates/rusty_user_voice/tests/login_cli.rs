@@ -102,6 +102,10 @@ fn login_no_verify_writes_config_and_redacted_json() {
         "--no-verify performs no network call, so user_id stays null"
     );
     assert!(v["next"].as_str().unwrap().contains("workspace"));
+    assert!(
+        v["legacy_warning"].is_null(),
+        "no pre-rename config in this home, so there is nothing to report"
+    );
     for forbidden in ["uservoice_api_key", "api_key", "token", "pat-from-pipe"] {
         assert!(
             v.get(forbidden).is_none(),

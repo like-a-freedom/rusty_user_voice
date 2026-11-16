@@ -202,6 +202,17 @@ pub(crate) fn legacy_user_config_dir() -> Option<std::path::PathBuf> {
     Some(home_dir()?.join(".config").join(LEGACY_CONFIG_DIR_NAME))
 }
 
+/// The legacy config file, when it still exists.
+///
+/// Migration normally moves it, but the move is skipped when the current
+/// config wins the path and can fail on permissions — either way a second
+/// copy of a credential stays on disk. `login` and `logout` report it so a
+/// surviving secret never stays invisible.
+pub(crate) fn legacy_config_leftover() -> Option<PathBuf> {
+    let path = legacy_user_config_dir()?.join(CONFIG_FILENAME);
+    path.exists().then_some(path)
+}
+
 /// The platform default state directory: `<state>/rusty_user_voice`
 /// (falling back to the local data dir where there is no state dir).
 fn platform_state_dir() -> Option<PathBuf> {

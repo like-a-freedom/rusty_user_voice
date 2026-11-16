@@ -313,3 +313,107 @@ fn a_user_named_state_dir_is_never_moved() {
     );
     std::fs::remove_dir_all(&home).ok();
 }
+
+/// The current config wins the migration and the legacy file stays behind —
+/// it holds a credential the tool must not destroy. The success payload
+/// reports it, so a second copy of a secret on disk never stays invisible.
+#[test]
+fn login_reports_a_legacy_config_the_current_config_left_behind() {
+    let home = unique_home("leftover");
+    seed_legacy_config(&home);
+    let current = current_config(&home);
+    std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+    std::fs::write(
+        &current,
+        "uservoice_api_key: current-key\nuservoice_base_url: https://c.uservoice.com\n",
+    )
+    .unwrap();
+
+    let mut cmd = migrate_cmd(&home);
+    cmd.args([
+        "--output",
+        "json",
+        "login",
+        "--base-url",
+        "https://x.uservoice.com",
+        "--api-key-stdin",
+        "--force",
+        "--no-verify",
+    ]);
+    cmd.write_stdin("new-key");
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"].as_bool(), Some(true));
+    let warning = v["legacy_warning"]
+        .as_str()
+        .expect("the surviving legacy config must be reported");
+    assert!(warning.contains("rusty-user-voice"), "{warning}");
+    assert!(
+        legacy_config(&home).exists(),
+        "the current config wins, so the legacy credential is preserved, not destroyed"
+    );
+    std::fs::remove_dir_all(&home).ok();
+}
+
+/// Both files present: migration keeps the legacy one (current wins), logout
+/// removes both, and the payload reports no leftover — the field exists to
+/// surface a surviving secret, so a clean logout must leave it null.
+#[test]
+fn logout_removes_both_configs_and_reports_no_leftover() {
+    let home = unique_home("logout-both");
+    seed_legacy_config(&home);
+    let current = current_config(&home);
+    std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+    std::fs::write(&current, "uservoice_api_key: current-key\n").unwrap();
+
+    let mut cmd = migrate_cmd(&home);
+    cmd.args(["--output", "json", "logout"]);
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"].as_bool(), Some(true));
+    assert!(
+        v["legacy_warning"].is_null(),
+        "a clean logout leaves nothing behind: {}",
+        v["legacy_warning"]
+    );
+    assert!(
+        !legacy_config(&home).exists(),
+        "the legacy credential must not survive the logout"
+    );
+    assert!(!current.exists(), "the current credential must be gone too");
+    std::fs::remove_dir_all(&home).ok();
+}
+
+/// `~/.config/rusty_user_voice` is a plain file, so the migration cannot run
+/// and logout takes the "only the legacy file exists" branch. The leftover
+/// check must run after the removal, never before it — otherwise a clean
+/// logout would report a credential that is already gone.
+#[test]
+fn logout_of_a_legacy_only_install_reports_no_leftover_in_json() {
+    let home = unique_home("logout-legacy-json");
+    seed_legacy_config(&home);
+    let blocker = home.join(".config/rusty_user_voice");
+    std::fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+    std::fs::write(&blocker, "not a directory").unwrap();
+
+    let mut cmd = migrate_cmd(&home);
+    cmd.args(["--output", "json", "logout"]);
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"].as_bool(), Some(true));
+    assert!(
+        v["legacy_warning"].is_null(),
+        "the leftover check must run after the removal: {}",
+        v["legacy_warning"]
+    );
+    assert!(
+        v["removed"]
+            .as_str()
+            .expect("the removed path is reported")
+            .contains("rusty-user-voice"),
+        "the legacy file is what was removed: {}",
+        v["removed"]
+    );
+    assert!(!legacy_config(&home).exists());
+    std::fs::remove_dir_all(&home).ok();
+}

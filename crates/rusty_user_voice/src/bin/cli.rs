@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
                             "validated": result.validated,
                             "user_id": result.user_id,
                             "shadow_warning": result.shadow_warning,
+                            "legacy_warning": result.legacy_warning,
                             "next": NEXT_COMMAND,
                         })
                     );
@@ -71,6 +72,9 @@ async fn main() -> anyhow::Result<()> {
                         println!("Saved without a server call (--no-verify).");
                     }
                     if let Some(warning) = result.shadow_warning {
+                        println!("{warning}");
+                    }
+                    if let Some(warning) = result.legacy_warning {
                         println!("{warning}");
                     }
                     println!("Next: {NEXT_COMMAND}");
@@ -92,11 +96,15 @@ async fn main() -> anyhow::Result<()> {
                             "ok": true,
                             "removed": result.removed,
                             "shadow_warning": result.shadow_warning,
+                            "legacy_warning": result.legacy_warning,
                         })
                     );
                 } else {
                     println!("Logged out (removed {}).", result.removed.display());
                     if let Some(warning) = result.shadow_warning {
+                        println!("{warning}");
+                    }
+                    if let Some(warning) = result.legacy_warning {
                         println!("{warning}");
                     }
                 }

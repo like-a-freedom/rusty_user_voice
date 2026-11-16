@@ -130,8 +130,9 @@ _Avoid_: metadata, context
 The user-level `~/.config/rusty_user_voice/config.yaml` written by `login` (mode 0600,
 `logout` deletes it). A config found at the pre-rename `~/.config/rusty-user-voice/` path
 is moved here on first read. A `config.yaml` next to the binary takes precedence on load and can
-shadow it — both commands report that via `shadow_warning`. `--force` rewrites only the
-three login-owned keys and preserves the rest.
+shadow it — both commands report that via `shadow_warning`. A pre-rename config that stays
+behind (the current one wins the path, or the move fails) is surfaced as `legacy_warning`.
+`--force` rewrites only the three login-owned keys and preserves the rest.
 _Avoid_: global config, settings.json
 
 **Skill**:

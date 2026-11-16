@@ -120,6 +120,22 @@ pub fn shadow_note(config_path: Option<&Path>) -> Option<String> {
     })
 }
 
+/// Note when the pre-rename config still exists after the command ran.
+///
+/// `login` leaves it deliberately when the current config wins the path, and
+/// the move can fail on permissions; `logout` rechecks after removing both
+/// files, so `Some` there means a secret survived a logout that must not read
+/// as clean. The load prefers the current file, so without this note the
+/// leftover copy would be invisible.
+fn legacy_note() -> Option<String> {
+    use crate::config::legacy_config_leftover;
+    let path = legacy_config_leftover()?;
+    Some(format!(
+        "note: {} still exists and holds a credential — remove it manually",
+        path.display()
+    ))
+}
+
 /// Resolved input for one `login` run. Built from clap flags in `bin/cli.rs`;
 /// missing required values are prompted interactively (TTY only). There is
 /// deliberately no `api_key` field (Credential Boundary).
@@ -149,6 +165,9 @@ pub struct LoginResult {
     pub validated: bool,
     pub user_id: Option<i64>,
     pub shadow_warning: Option<String>,
+    /// The pre-rename config, when it survived migration — a second copy of a
+    /// credential on disk, reported rather than silently ignored.
+    pub legacy_warning: Option<String>,
 }
 
 /// Outcome of a successful logout.
@@ -156,6 +175,10 @@ pub struct LoginResult {
 pub struct LogoutResult {
     pub removed: PathBuf,
     pub shadow_warning: Option<String>,
+    /// Post-removal recheck: `None` after a clean logout, `Some` only when the
+    /// pre-rename file still exists — a surviving secret must never read as
+    /// success.
+    pub legacy_warning: Option<String>,
 }
 
 const URL_HINT: &str = "re-run with --base-url URL (or set USERVOICE_BASE_URL)";
@@ -310,12 +333,14 @@ pub async fn run_login(params: LoginParams) -> Result<LoginResult, CommandError>
         )
     })?;
     let shadow_warning = shadow_note(Some(&config_path));
+    let legacy_warning = legacy_note();
     Ok(LoginResult {
         config_path,
         base_url: url,
         validated,
         user_id,
         shadow_warning,
+        legacy_warning,
     })
 }
 
@@ -356,6 +381,9 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
                 // No current file to point at — the note must not name a
                 // path that does not exist.
                 shadow_warning: shadow_note(None),
+                // Recheck after the removal: `Some` only if the file survived
+                // it (a concurrent writer), never after a clean logout.
+                legacy_warning: legacy_note(),
             });
         }
         return Err(CommandError::new(
@@ -387,9 +415,11 @@ pub fn run_logout() -> Result<LogoutResult, CommandError> {
         }
     }
     let shadow_warning = shadow_note(Some(&path));
+    let legacy_warning = legacy_note();
     Ok(LogoutResult {
         removed: path,
         shadow_warning,
+        legacy_warning,
     })
 }
 
