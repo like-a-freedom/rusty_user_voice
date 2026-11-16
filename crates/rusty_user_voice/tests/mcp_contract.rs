@@ -50,6 +50,68 @@ fn update_tool_documents_custom_fields() {
         .expect("custom_fields is part of the update contract");
     assert_eq!(field["type"], "object");
     assert_eq!(field["additionalProperties"], serde_json::json!(true));
+    assert!(
+        field["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("workspace_context"),
+        "the schema description must say where the keys come from: {field}"
+    );
+}
+
+#[test]
+fn tool_descriptions_stay_short_and_name_the_next_step() {
+    // An agent reads the tool list before it reads any corpus page, so each
+    // description has to fit in a few sentences. The shared rules (pagination,
+    // preview before apply) live in the server instructions and the corpus.
+    let app = App::new(Arc::new(support::FakeUserVoiceApi::complete()), 2);
+    let tools = UserVoiceMcpServer::new(app).tool_definitions();
+    for tool in &tools {
+        let description = tool.description.as_deref().unwrap_or_default();
+        assert!(
+            !description.trim().is_empty(),
+            "{} has no description",
+            tool.name
+        );
+        assert!(
+            description.chars().count() <= 420,
+            "{} has a {}-character description; keep it short and move detail into the corpus: {description}",
+            tool.name,
+            description.chars().count()
+        );
+        assert!(
+            !description.contains('—'),
+            "{} uses an em dash: {description}",
+            tool.name
+        );
+    }
+
+    let update = tools
+        .iter()
+        .find(|tool| tool.name == "uservoice_update_idea")
+        .expect("update tool");
+    assert!(
+        update
+            .description
+            .as_deref()
+            .unwrap_or_default()
+            .contains("custom_fields"),
+        "the update description must name the custom_fields map: {:?}",
+        update.description
+    );
+    let workspace = tools
+        .iter()
+        .find(|tool| tool.name == "uservoice_workspace_context")
+        .expect("workspace tool");
+    assert!(
+        workspace
+            .description
+            .as_deref()
+            .unwrap_or_default()
+            .contains("custom field"),
+        "the workspace description must say that it lists the custom field keys: {:?}",
+        workspace.description
+    );
 }
 
 #[test]

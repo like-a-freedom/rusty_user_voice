@@ -98,6 +98,10 @@ Rules that hold for every write:
   `partial`. Refresh the Idea before deciding anything.
 - Never retry a failed write with a fresh Idempotency Key. That duplicates the
   side effect.
+- Custom fields (`cf_*`) go through `custom_fields` on the MCP tool, or
+  `--custom-field` and `--custom-field-json` on the CLI. Get the keys from
+  `workspace --include-catalog`: the API ignores a key the tenant has not
+  defined, so never guess one.
 
 Publishing a Status Update to supporters follows the same two steps, through
 `ideas publish`. Recording an inbound Feedback Record takes one step, through

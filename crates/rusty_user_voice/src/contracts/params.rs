@@ -222,7 +222,7 @@ pub struct UpdateIdeaParams {
     pub internal_note: Option<String>,
     /// Custom field values keyed by their UserVoice key (`cf_...`), sent as
     /// top-level properties of the update body. A `null` value clears the
-    /// field.
+    /// field. Take the keys from `uservoice_workspace_context`.
     #[serde(default)]
     pub custom_fields: BTreeMap<String, serde_json::Value>,
     pub change_id: Option<ChangeId>,

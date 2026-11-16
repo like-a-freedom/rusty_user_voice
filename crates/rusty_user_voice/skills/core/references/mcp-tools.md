@@ -91,7 +91,7 @@ continuation before passing it back.
 
 ## uservoice_update_idea
 
-Change an Idea safely.
+Change an Idea in two calls. Preview first, then apply.
 
 | Parameter | Meaning |
 |---|---|
